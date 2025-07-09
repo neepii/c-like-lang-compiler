@@ -1,4 +1,11 @@
-(test
+(library
  (name test_compiler)
  (modules test_compiler)
- (libraries alcotest))
+ (libraries base stdio compiler)
+ (preprocess (pps ppx_expect ))
+ (inline_tests))
+
+(executable
+ (name test_qcheck)
+ (modules test_qcheck)
+ (libraries qcheck-core qcheck))
