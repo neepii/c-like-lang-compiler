@@ -41,7 +41,7 @@ let tokenize_text text_string =
   List.map get_token_type lexeme_list 
 
 let parse_const token = 
-  if snd token == IntLiteral then Constant (int_of_string (fst token)) 
+  if snd token == IntLiteral then Constant (int_of_string (fst token))
   else raise (Failure "Can't parse")
 
 let get_first_sign str = 
@@ -71,18 +71,29 @@ let rec parse_prod token_list =
        else constant
 
 
+let rec first_occurance_of (ttype: token_type) token_list =
+  match token_list with
+    | [] -> []
+    | x :: [] -> if snd x = ttype then [x] else []
+    | h :: t -> if snd h = ttype then h :: t else first_occurance_of ttype t
+
 let rec parse_expr token_list =
   match token_list with 
     | [] -> raise (Failure "Illegal state in parse_expr")
     | x :: [] -> Prod (parse_prod [x])
     | h :: t -> 
-       let product = parse_prod [h] in
+       let product = parse_prod (h :: t) in
        let operator = List.hd t in
        if snd operator = FirstOperator then 
          let loc_expression = parse_expr (List.tl t) in
          let loc_operator = get_first_sign (fst operator) in
          First_binary_op (product, loc_operator, loc_expression)
-       else Prod (parse_prod token_list)
+       else 
+         let remainder_list = first_occurance_of FirstOperator t in
+         if remainder_list = [] then Prod(product) else 
+         let loc_expression = parse_expr (List.tl remainder_list) in
+         let loc_operator = get_first_sign (fst (List.hd remainder_list)) in
+         First_binary_op (product, loc_operator, loc_expression)
 
 let rec print_prod ast =
   match ast with
