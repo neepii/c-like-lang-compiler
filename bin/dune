@@ -2,4 +2,5 @@
  (public_name compiler)
  (name main)
  (libraries compiler)
+ (ocamlc_flags (:standard -g))
  (modes byte exe))
