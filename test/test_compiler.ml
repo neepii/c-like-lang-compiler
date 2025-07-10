@@ -41,8 +41,7 @@ let%expect_test "parenthesis test 1" =
   let text = "1 + ( 2 + 3 )" in
   let ast = parse (tokenize_text text) in
   print_expr ast;
-  [%expect {| ((1)+((2)+(3))) |}];;
-
+  [%expect {| ((1)+((2)+(3))) |}]
 
 let%expect_test "parenthesis test 2" = 
   let text = "( 1 + 2 ) + 3" in
@@ -54,7 +53,10 @@ let%expect_test "parenthesis test 3" =
   let text = "1 * ( 2 + 3 )" in
   let ast = parse (tokenize_text text) in
   print_expr ast;
-  [%expect {| ((1)*((2)+(3))) |}];;
+  [%expect {| ((1)*((2)+(3))) |}]
 
-(* need to satisfy "(1 + 2 ) * 3" *)
-
+let%expect_test "parenthesis test 4" = 
+  let text = "( 2 + 3 ) * 4" in
+  let ast = parse (tokenize_text text) in
+  print_expr ast;
+  [%expect {| (((2)+(3))*(4)) |}]

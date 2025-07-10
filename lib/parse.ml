@@ -46,6 +46,7 @@ let parse_match (ttype: token_type) token_list =
     | [] -> raise (Failure "Can't match anything with empty list")
     | h :: t -> if snd h = ttype then t else raise (Failure "Can't match")
 
+(*this is quite strange, only one of two must exist*)
 let get_sign str = 
   match str with
   | "+" -> Add
@@ -65,27 +66,34 @@ let rec parse_expr token_list =
   match token_list with 
     | [] -> raise (Failure "Illegal state in parse_expr")
     | x :: [] -> (fst (parse_prod [x])), []
-    | h :: t -> 
-          let product, rem = parse_prod (h :: t) in
-          Printf.printf "%s\n" (fst (List.hd rem));
+    | x -> 
+          let product, rem = parse_prod x in
           if rem = [] then (product, rem)
-          else if snd (List.hd rem) = FirstOperator then 
+          else if snd (List.hd rem) = FirstOperator then  (
             let operator = get_sign (fst (List.hd rem)) in
             let expression, rem_expr = parse_expr (List.tl rem) in
-            (Bop (product, operator, expression), rem_expr)
+            (Bop (product, operator, expression), rem_expr))
           else
             (product, rem)
 
 and parse_prod token_list = 
   match token_list with
     | [] -> raise (Failure "Illegal state in parse_prod")
-    | x :: [] -> (parse_const x, [])
+    | x :: [] -> 
+       (parse_const x, [])
     | h :: t -> 
        match snd h with
+         (* refactor me *)
        | LeftParenthesis ->
           let expression, rem = parse_expr t in
           let rem_without_rightparenthesis = parse_match RightParenthesis rem in
-          (expression, rem_without_rightparenthesis)
+          if rem_without_rightparenthesis = [] then (expression, rem_without_rightparenthesis)
+          else if snd (List.hd rem_without_rightparenthesis) = SecondOperator then 
+            let operator = get_sign (fst (List.hd rem_without_rightparenthesis)) in
+            let product, rem = parse_prod (List.tl rem_without_rightparenthesis) in
+            (Bop (expression, operator, product), rem)
+          else
+            (expression, rem_without_rightparenthesis)
        | IntLiteral ->
           let constant = parse_const h in
           let operator = List.hd t in
@@ -95,7 +103,8 @@ and parse_prod token_list =
             (Bop (constant, loc_operator, loc_product)) , rem)
           else 
             (constant, t)
-       | _ -> failwith "unimpl"
+       | _ -> 
+          failwith "unimpl"
 
 let parse token_list =
   fst (parse_expr token_list)
