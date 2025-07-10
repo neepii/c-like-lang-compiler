@@ -2,9 +2,10 @@
 type token_type = IntLiteral
                 | FirstOperator
                 | SecondOperator
+                | LeftParenthesis
+                | RightParenthesis
                 | Keyword
                 | NoneToken
-
 
 type num = int
 
@@ -14,13 +15,11 @@ type first_op = Add
 type second_op = Mul
                | Div
 
-
 type prod = Second_binary_op of prod * second_op * prod
           | Constant of num
 
 type expr = First_binary_op of prod * first_op * expr
           | Prod of prod
-
 
 let token_type_key_value = [
     "[0-9]+", IntLiteral;
@@ -56,20 +55,18 @@ let get_second_sign str =
   | "/" -> Div
   | _ -> raise (Failure "Can't parse operator")
   
-
 let rec parse_prod token_list = 
   match token_list with
     | [] -> raise (Failure "Illegal state in parse_prod")
-    | x :: [] -> parse_const x
+    | x :: [] -> (parse_const x, [])
     | h :: t -> 
        let constant = parse_const h in
        let operator = List.hd t in
        if snd operator = SecondOperator then (
-         let loc_product = parse_prod (List.tl t) in
+         let loc_product, rem = parse_prod (List.tl t) in
          let loc_operator = get_second_sign (fst operator) in
-         Second_binary_op (constant, loc_operator, loc_product))
-       else constant
-
+         (Second_binary_op (constant, loc_operator, loc_product)) , rem)
+       else (constant, t)
 
 let rec first_occurance_of (ttype: token_type) token_list =
   match token_list with
@@ -77,24 +74,35 @@ let rec first_occurance_of (ttype: token_type) token_list =
     | x :: [] -> if snd x = ttype then [x] else []
     | h :: t -> if snd h = ttype then h :: t else first_occurance_of ttype t
 
+(* let rec parenthesis_head token_list (cur_head: (string * token_type) list) count = *)
+(*   match token_list with *)
+(*     | [] -> ([], cur_head) *)
+(*     | x :: [] ->  *)
+(*        if snd x = RightParenthesis && count = 1 then ([], cur_head) else raise (Failure "parenthesis_head list") *)
+(*     | h :: t ->  *)
+(*        if snd h = LeftParenthesis then (parenthesis_head t (count + 1), cur_head :: h) *)
+(*        else if snd h = RightParenthesis then (parenthesis_head t (count - 1), cur_head :: h) *)
+(*        else (parenthesis_head t count, cur_head :: h) *)
+
 let rec parse_expr token_list =
   match token_list with 
     | [] -> raise (Failure "Illegal state in parse_expr")
-    | x :: [] -> Prod (parse_prod [x])
+    | x :: [] -> (Prod (fst (parse_prod [x])), [])
     | h :: t -> 
-       let product = parse_prod (h :: t) in
-       let operator = List.hd t in
-       if snd operator = FirstOperator then 
-         let loc_expression = parse_expr (List.tl t) in
-         let loc_operator = get_first_sign (fst operator) in
-         First_binary_op (product, loc_operator, loc_expression)
-       else 
-         let remainder_list = first_occurance_of FirstOperator t in
-         if remainder_list = [] then Prod(product) else 
-         let loc_expression = parse_expr (List.tl remainder_list) in
-         let loc_operator = get_first_sign (fst (List.hd remainder_list)) in
-         First_binary_op (product, loc_operator, loc_expression)
+       (* match snd h with *)
+       (* | LeftParenthesis ->  *)
+       (* | RightParenthesis -> raise (Failure "Syntax error: closed parenthesis") *)
+       (* | IntLiteral ->  *)
+          let product, rem = parse_prod (h :: t) in
+          if rem = [] then (Prod product, rem)
+          else 
+            let operator = get_first_sign (fst (List.hd rem)) in
+            let expression, rem_expr = parse_expr (List.tl rem) in
+            (First_binary_op (product, operator, expression), rem_expr)
 
+let parse token_list =
+  fst (parse_expr token_list)
+       
 let rec print_prod ast =
   match ast with
   | Second_binary_op (x, y, z) -> 

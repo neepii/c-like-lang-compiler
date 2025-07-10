@@ -7,7 +7,7 @@ let () =
   try
     let line = input_line ic in
     let tokens = tokenize_text line in
-    let ast = parse_expr tokens in
+    let ast = parse tokens in
     print_ast ast;
   with e ->
     close_in_noerr ic;
