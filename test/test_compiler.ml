@@ -72,3 +72,15 @@ let%expect_test "assignment test 2" =
   let ast = parse (tokenize_text text) in
   print_stmt ast;
   [%expect {| (foo) = ((42)*(1337)) ; (bar) = (((143)/((666)*(23)))+((777)/(42))) ; |}]
+
+let%expect_test "whilestatement test 1" = 
+  let text = "while ( 1 + 2 ) { variable = 1 ; }" in
+  let ast = parse (tokenize_text text) in
+  print_stmt ast;
+  [%expect {| while (((1)+(2))) { (variable) = (1) ; } |}]
+
+let%expect_test "ifstatement test 1" = 
+  let text = "if ( 1 + 2 ) { variable = 1 ; }" in
+  let ast = parse (tokenize_text text) in
+  print_stmt ast;
+  [%expect {| if (((1)+(2))) { (variable) = (1) ; } |}]
