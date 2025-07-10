@@ -31,9 +31,30 @@ let%expect_test "long basic ast 3" =
   print_expr ast;
   [%expect {| ((1)/((3)/((4)/((5)/((6)/(7)))))) |}];;
 
-
 let%expect_test "long basic ast 4" = 
   let text = "1 * 3 / 4 * 5 / 6 * 7" in
   let ast = parse (tokenize_text text) in
   print_expr ast;
   [%expect {| ((1)*((3)/((4)*((5)/((6)*(7)))))) |}];;
+
+let%expect_test "parenthesis test 1" = 
+  let text = "1 + ( 2 + 3 )" in
+  let ast = parse (tokenize_text text) in
+  print_expr ast;
+  [%expect {| ((1)+((2)+(3))) |}];;
+
+
+let%expect_test "parenthesis test 2" = 
+  let text = "( 1 + 2 ) + 3" in
+  let ast = parse (tokenize_text text) in
+  print_expr ast;
+  [%expect {| (((1)+(2))+(3)) |}];;
+
+let%expect_test "parenthesis test 3" = 
+  let text = "1 * ( 2 + 3 )" in
+  let ast = parse (tokenize_text text) in
+  print_expr ast;
+  [%expect {| ((1)*((2)+(3))) |}];;
+
+(* need to satisfy "(1 + 2 ) * 3" *)
+
