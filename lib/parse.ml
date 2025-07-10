@@ -5,9 +5,16 @@ type token_type = IntLiteral
                 | LeftParenthesis
                 | RightParenthesis
                 | Keyword
-                | NoneToken
+                | IfKeyword
+                | WhileKeyword
+                | AssignmentSymbol
+                | Identifier
+                | Punctuator
+                | Epsilon
 
 type literal = int
+
+type ident = string
 
 type op = Add
         | Sub
@@ -17,8 +24,19 @@ type op = Add
 type expr = Constant of literal
           | Bop of expr * op * expr
 
+type stmt = Assignment of ident * expr
+          | IfStatement of expr * stmt list * stmt list
+          | WhileStatement of expr * stmt list
+
+type program = stmt list
+
 let token_type_key_value = [
     "[0-9]+", IntLiteral;
+    ";", Punctuator;
+    "if", IfKeyword;
+    "while", WhileKeyword;
+    "=", AssignmentSymbol;
+    "[a-zA-Z][a-zA-z0-9]*", Identifier;
     "[+-]", FirstOperator;
     "[*/]", SecondOperator;
     "(", LeftParenthesis;
@@ -106,9 +124,28 @@ and parse_prod token_list =
        | _ -> 
           failwith "unimpl"
 
-let parse token_list =
-  fst (parse_expr token_list)
-       
+
+let parse_stmt (token_list: (string * token_type) list) = 
+  match token_list with
+  | [] -> raise (Failure "No statements ahead")
+  | h :: t -> 
+     match snd h with
+     | Identifier -> 
+        let rem = parse_match AssignmentSymbol t in
+        let expression, rem = parse_expr rem in
+        let rem = parse_match Punctuator rem in
+        (Assignment ((fst h), expression), rem)
+     | _ -> failwith "unimplemented case in parse_stmt"
+
+
+let rec parse (token_list: (string * token_type) list) =
+  let stmt, rem = parse_stmt token_list in
+  if rem = [] then 
+    [stmt] 
+  else 
+     let stmts = parse rem in
+     stmt :: stmts
+
 let rec print_expr ast =
   match ast with
   | Bop (x, y, z) -> 
@@ -120,6 +157,26 @@ let rec print_expr ast =
      print_string ")"
   | Constant x -> print_string ("(" ^ string_of_int x ^ ")")
 
-let print_ast ast =
-  print_expr ast;
+let print_stmt ast_list =
+  List.iter (fun ast ->
+      match ast with 
+      (* | IfStatement (x, y, z) -> *)
+      (*    print_string "if"; *)
+      (*    print_expr x; *)
+      (*    print_string "{"; *)
+      (*    print_stmt y; *)
+      (*    print_string "}"; *)
+      (*    if z != [] then ( *)
+      (*      print_string " else {"; *)
+      (*      print_stmt z; *)
+      (*      print_string "};" *)
+      (*    ) *)
+      | Assignment (x, y) ->
+         print_string ("(" ^ x ^ ") = ");
+         print_expr y;
+         print_string " ; "
+      | _ -> failwith "unimpl print_stmt"
+    ) ast_list
+let print_ast ast_list =
+  print_stmt ast_list;
   print_endline ""
