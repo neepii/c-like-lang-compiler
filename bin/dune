@@ -1,6 +1,6 @@
 (executable
  (public_name compiler)
  (name main)
- (libraries compiler)
+ (libraries compiler stdio)
  (ocamlc_flags (:standard -g))
  (modes byte exe))

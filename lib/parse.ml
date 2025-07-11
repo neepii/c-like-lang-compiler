@@ -13,6 +13,8 @@ type token_type = IntLiteral
                 | AssignmentSymbol
                 | Identifier
                 | Punctuator
+                | Whitespace
+                | EOF
                 | Epsilon
 
 type literal = int
@@ -30,11 +32,13 @@ type expr = Constant of literal
 type stmt = Assignment of ident * expr
           | IfStatement of expr * stmt list * stmt list
           | WhileStatement of expr * stmt list
+          | EndStatement
 
 type program = stmt list
 
 let token_type_key_value = [
     "[0-9]+", IntLiteral;
+    "[ \n\r\x0b]+", Whitespace;
     ";", Punctuator;
     "if", IfKeyword;
     "while", WhileKeyword;
@@ -49,17 +53,22 @@ let token_type_key_value = [
     "}", RightCurly;
 ]
 
-let regexp_string_match str pattern =
-  Str.string_match (Str.regexp pattern) str 0
+let token_type_regexp = 
+  List.map (fun pair -> (Str.regexp (fst pair) , (snd pair))) token_type_key_value
 
-let get_token_type str =
-  let regexp_match x = regexp_string_match str (fst x) in
-  let ttype = snd (List.hd (List.filter regexp_match token_type_key_value)) in
-  (str, ttype)
-
-let tokenize_text text_string = 
-  let lexeme_list = Str.split (Str.regexp "[ \n\r\x0c\t]+") text_string in
-  List.map get_token_type lexeme_list 
+let rec tokenize_text text_string =
+  if text_string = "" then 
+    [("", EOF)]
+  else 
+    let matched_regexp = List.find (fun regexp -> Str.string_match (fst regexp) text_string 0) token_type_regexp in (* i think List.find terminates when it finds my regexp*)
+    let end_index = Str.match_end () in
+    let token_string = String.sub text_string 0 end_index in
+    let new_string = String.sub text_string end_index ((String.length text_string) - end_index) in
+    if snd matched_regexp == Whitespace then 
+      tokenize_text new_string
+    else
+      let token = (token_string, snd matched_regexp) in
+      token :: (tokenize_text new_string)
 
 let parse_const token =
   if snd token == IntLiteral then Constant (int_of_string (fst token))
@@ -165,6 +174,9 @@ let rec parse_stmt (token_list: (string * token_type) list) =
             let second_stmts, tail = parse_stmt tail in
             let tail = parse_match RightCurly tail in
             (IfStatement (expression, first_stmts, second_stmts), tail)
+       | EOF ->
+          (EndStatement, [])
+          
        | _ -> failwith "unimplemented case in parse_stmt" 
   in
   if tail = [] || snd (List.hd tail) = RightCurly then
@@ -213,8 +225,9 @@ let rec print_stmt ast_list =
            print_stmt z;
            print_string "}";
          )
+      | EndStatement ->
+         print_string "\n";
     ) ast_list
 
 let print_ast ast_list =
   print_stmt ast_list;
-  print_endline ""
