@@ -1,4 +1,5 @@
 (* -*- compile-command: "opam exec -- dune exec compiler"; -*- *)
+
 open Compiler.Parse
 
 let () =
