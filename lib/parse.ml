@@ -2,6 +2,7 @@
 type token_type = IntLiteral
                 | FirstOperator
                 | SecondOperator
+                | CompareOperator
                 | LeftParenthesis
                 | RightParenthesis
                 | LeftCurly
@@ -26,7 +27,8 @@ type op = Add
         | Mul
         | Div
 
-type expr = Constant of literal
+type expr = Variable of string
+          | Constant of literal
           | Bop of expr * op * expr
 
 type stmt = Assignment of ident * expr
@@ -38,7 +40,7 @@ type program = stmt list
 
 let token_type_key_value = [
     "[0-9]+", IntLiteral;
-    "[ \n\r\x0b]+", Whitespace;
+    "[ \n\t\r\x0b]+", Whitespace;
     ";", Punctuator;
     "if", IfKeyword;
     "while", WhileKeyword;
@@ -47,6 +49,7 @@ let token_type_key_value = [
     "[a-zA-Z][a-zA-z0-9]*", Identifier;
     "[+-]", FirstOperator;
     "[*/]", SecondOperator;
+    "[\([<>][=]?\)\(!=\)]", CompareOperator;
     "(", LeftParenthesis;
     ")", RightParenthesis;
     "{", LeftCurly;
@@ -72,12 +75,16 @@ let rec tokenize_text text_string =
 
 let parse_const token =
   if snd token == IntLiteral then Constant (int_of_string (fst token))
-  else raise (Failure "Can't parse")
+  else raise (Failure "Can't parse constant")
+
+let parse_variable token =
+  if snd token == Identifier then Variable (fst token)
+  else raise (Failure "Can't parse variable")
 
 let parse_match (ttype: token_type) token_list =
   match token_list with
     | [] -> raise (Failure "Can't match anything with empty list")
-    | h :: t -> if snd h = ttype then t else raise (Failure "Can't match")
+    | h :: t -> if snd h = ttype then t else raise (Failure ("Syntax error: match error on token" ^ (fst h)))
 
 (*this is quite strange, only one of two must exist*)
 let get_sign str = 
@@ -131,13 +138,22 @@ and parse_prod token_list =
           let constant = parse_const h in
           let operator = List.hd t in
           if snd operator = SecondOperator then (
-            let loc_product, rem = parse_prod (List.tl t) in
             let loc_operator = get_sign (fst operator) in
+            let loc_product, rem = parse_prod (List.tl t) in
             (Bop (constant, loc_operator, loc_product)) , rem)
           else 
             (constant, t)
+       | Identifier ->
+          let variable = parse_variable h in
+          let operator = List.hd t in
+          if snd operator = SecondOperator then (
+            let loc_operator = get_sign (fst operator) in
+            let loc_product, rem = parse_prod (List.tl t) in
+            (Bop (variable, loc_operator, loc_product)) , rem)
+          else 
+            (variable, t)
        | _ -> 
-          failwith "unimpl"
+          failwith "unimpl case in parse_prod"
 
 
 let rec parse_stmt (token_list: (string * token_type) list) = 
@@ -145,7 +161,7 @@ let rec parse_stmt (token_list: (string * token_type) list) =
     match token_list with
     | [] -> raise (Failure "No statements ahead")
     | h :: tail ->
-       match snd h with
+       match snd h with 
        | Identifier -> 
           let tail = parse_match AssignmentSymbol tail in
           let expression, tail = parse_expr tail in
@@ -176,7 +192,6 @@ let rec parse_stmt (token_list: (string * token_type) list) =
             (IfStatement (expression, first_stmts, second_stmts), tail)
        | EOF ->
           (EndStatement, [])
-          
        | _ -> failwith "unimplemented case in parse_stmt" 
   in
   if tail = [] || snd (List.hd tail) = RightCurly then
@@ -200,6 +215,7 @@ let rec print_expr ast =
      print_expr z;
      print_string ")"
   | Constant x -> print_string ("(" ^ string_of_int x ^ ")")
+  | Variable x -> print_string ("(" ^ x ^ ")")
 
 let rec print_stmt ast_list =
   List.iter (fun ast ->
