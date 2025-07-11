@@ -98,7 +98,13 @@ let%expect_test "tokenizer test 2" =
   [%expect {| if (((1)+(2))) { (variable) = (1) ; } |}]
 
 let%expect_test "factorial test" = 
-  let text = "acc=1; n=6;\nwhile(n+1){\nacc=acc*n;n=n-1;}" in
+  let text = "acc=1; n=6;\nwhile(n>1){\nacc=acc*n;n=n-1;}" in
   let ast = parse (tokenize_text text) in
   print_stmt ast;
-  [%expect {| (acc) = (1) ; (n) = (6) ; while (((n)+(1))) { (acc) = ((acc)*(n)) ; (n) = ((n)-(1)) ; } |}]
+  [%expect {| (acc) = (1) ; (n) = (6) ; while (((n)>(1))) { (acc) = ((acc)*(n)) ; (n) = ((n)-(1)) ; } |}]
+
+let%expect_test "factorial test" = 
+  let text = "bool = n > 1 ;" in
+  let ast = parse (tokenize_text text) in
+  print_stmt ast;
+  [%expect {| (bool) = ((n)>(1)) ; |}]

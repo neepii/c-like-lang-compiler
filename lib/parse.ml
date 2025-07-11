@@ -2,7 +2,8 @@
 type token_type = IntLiteral
                 | FirstOperator
                 | SecondOperator
-                | CompareOperator
+                | RelationalOperator
+                | EqualityOperator
                 | LeftParenthesis
                 | RightParenthesis
                 | LeftCurly
@@ -27,9 +28,19 @@ type op = Add
         | Mul
         | Div
 
+type rel = BiggerEqual
+         | LessEqual
+         | Bigger
+         | Less
+
+type equ = Equal
+         | NotEqual
+
 type expr = Variable of string
           | Constant of literal
           | Bop of expr * op * expr
+          | Relation of expr * rel * expr
+          | Equality of expr * equ * expr
 
 type stmt = Assignment of ident * expr
           | IfStatement of expr * stmt list * stmt list
@@ -48,8 +59,9 @@ let token_type_key_value = [
     "=", AssignmentSymbol;
     "[a-zA-Z][a-zA-z0-9]*", Identifier;
     "[+-]", FirstOperator;
-    "[*/]", SecondOperator;
-    "[\([<>][=]?\)\(!=\)]", CompareOperator;
+    "[*/%]", SecondOperator;
+    "[<>]", RelationalOperator;
+    "[!=][=]]", EqualityOperator;
     "(", LeftParenthesis;
     ")", RightParenthesis;
     "{", LeftCurly;
@@ -63,7 +75,7 @@ let rec tokenize_text text_string =
   if text_string = "" then 
     [("", EOF)]
   else 
-    let matched_regexp = List.find (fun regexp -> Str.string_match (fst regexp) text_string 0) token_type_regexp in (* i think List.find terminates when it finds my regexp*)
+    let matched_regexp = List.find (fun regexp -> Str.string_match (fst regexp) text_string 0) token_type_regexp in
     let end_index = Str.match_end () in
     let token_string = String.sub text_string 0 end_index in
     let new_string = String.sub text_string end_index ((String.length text_string) - end_index) in
@@ -84,16 +96,42 @@ let parse_variable token =
 let parse_match (ttype: token_type) token_list =
   match token_list with
     | [] -> raise (Failure "Can't match anything with empty list")
-    | h :: t -> if snd h = ttype then t else raise (Failure ("Syntax error: match error on token" ^ (fst h)))
+    | h :: t -> if snd h = ttype then t else raise (Failure ("Syntax error: match error on token " ^ (fst h)))
 
-(*this is quite strange, only one of two must exist*)
+let get_rel str = 
+  match str with
+  | ">" -> Bigger
+  | "<" -> Less
+  | ">=" -> BiggerEqual
+  | "<=" -> LessEqual
+  | _ -> raise (Failure "Can't parse relational operator")
+
+let get_equ str = 
+  match str with
+  | "==" -> Equal
+  | "!=" -> NotEqual
+  | _ -> raise (Failure "Can't parse equality operator")
+
 let get_sign str = 
   match str with
   | "+" -> Add
   | "-" -> Sub
   | "*" -> Mul
   | "/" -> Div
-  | _ -> raise (Failure "Can't parse operator")
+  | _ -> raise (Failure "Can't parse arithmetic operator")
+
+(* i need to refactor this *)
+let get_string_rel str = 
+  match str with
+  | Bigger      -> ">"   
+  | Less        -> "<"   
+  | BiggerEqual -> ">=" 
+  | LessEqual   -> "<=" 
+
+let get_string_equ str = 
+  match str with
+  |  Equal    -> "==" 
+  |  NotEqual -> "!=" 
 
 let get_string_sign oper = 
   match oper with
@@ -102,16 +140,17 @@ let get_string_sign oper =
   | Mul -> "*"
   | Div -> "/"
 
-let rec parse_expr token_list =
+
+let rec parse_sum token_list =
   match token_list with 
-    | [] -> raise (Failure "Illegal state in parse_expr")
+    | [] -> raise (Failure "Illegal state in parse_sum")
     | x :: [] -> (fst (parse_prod [x])), []
     | x -> 
           let product, rem = parse_prod x in
           if rem = [] then (product, rem)
           else if snd (List.hd rem) = FirstOperator then  (
             let operator = get_sign (fst (List.hd rem)) in
-            let expression, rem_expr = parse_expr (List.tl rem) in
+            let expression, rem_expr = parse_sum (List.tl rem) in
             (Bop (product, operator, expression), rem_expr))
           else
             (product, rem)
@@ -125,7 +164,7 @@ and parse_prod token_list =
        match snd h with
          (* refactor me *)
        | LeftParenthesis ->
-          let expression, rem = parse_expr t in
+          let expression, rem = parse_sum t in
           let rem_without_rightparenthesis = parse_match RightParenthesis rem in
           if rem_without_rightparenthesis = [] then (expression, rem_without_rightparenthesis)
           else if snd (List.hd rem_without_rightparenthesis) = SecondOperator then 
@@ -155,6 +194,23 @@ and parse_prod token_list =
        | _ -> 
           failwith "unimpl case in parse_prod"
 
+let rec parse_expr token_list =
+  match token_list with
+    | [] -> raise (Failure "Illegal state in parse_expr")
+    | x :: [] -> (fst (parse_sum [x])), []
+    | x ->
+          let product, rem = parse_sum x in
+          if rem = [] then (product, rem)
+          else if snd (List.hd rem) = RelationalOperator then  (
+            let operator = get_rel (fst (List.hd rem)) in
+            let expression, rem_expr = parse_expr (List.tl rem) in
+            (Relation (product, operator, expression), rem_expr))
+          else if snd (List.hd rem) = EqualityOperator then  (
+            let operator = get_equ (fst (List.hd rem)) in
+            let expression, rem_expr = parse_expr (List.tl rem) in
+            (Equality (product, operator, expression), rem_expr))
+          else
+            (product, rem)
 
 let rec parse_stmt (token_list: (string * token_type) list) = 
   let stmt, tail =
@@ -207,6 +263,20 @@ let parse (token_list: (string * token_type) list) =
 
 let rec print_expr ast =
   match ast with
+  | Relation (x, y, z) -> 
+     print_string "(";
+     print_expr x;
+     let sign = get_string_rel y in
+     print_string sign;
+     print_expr z;
+     print_string ")"
+  | Equality (x, y, z) -> 
+     print_string "(";
+     print_expr x;
+     let sign = get_string_equ y in
+     print_string sign;
+     print_expr z;
+     print_string ")"
   | Bop (x, y, z) -> 
      print_string "(";
      print_expr x;
