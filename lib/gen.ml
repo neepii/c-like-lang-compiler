@@ -120,20 +120,29 @@ let string_of_ir_arg arg =
   | Symbol x -> x
   | EffectiveAddress (x, y) -> string_of_int x ^ "(" ^ riscv64_reg_list.(y) ^ ")"
 
+let string_of_instruction operator operand_list =
+  match operand_list with
+  | [] -> operator ^ "\n"
+  | x :: [] -> operator ^ " " ^ x ^ "\n"
+  | h :: t -> 
+     let list = List.map (fun str -> ", " ^ str) t in 
+     let tail_string = List.fold_left ( ^ ) "" list in
+     "  " ^ operator ^ " " ^ h ^ tail_string  ^ "\n"
 
 let construct_move_operator operand1 operand2 =
   let first = string_of_ir_arg operand1 in
   let second = string_of_ir_arg operand2 in
   if first = second then "" else
     match (operand1, operand2) with
-    | (Symbol _, _ ) ->   "  la " ^ second ^ ", " ^ first ^ "\n"
-    | (Register _, Register _) -> "  add " ^ second ^ ", " ^ first ^ ", zero\n"
-    | (Register _, Symbol _) -> failwith "Unimpl reg -> sym"
-    | (Register _, EffectiveAddress _) -> "  sd " ^ second ^ ", " ^ first ^ "\n"
+    | (Symbol _, _ ) ->  string_of_instruction "la" [second; first]
+    | (Register _, Register _) -> string_of_instruction "add" [second; first; "zero"]
+    | (Register _, EffectiveAddress _) -> string_of_instruction "sd" [second;first]
+    | (EffectiveAddress _,  _) -> string_of_instruction "sd" [second;first]
+    | (Immediate _, Register _) -> string_of_instruction "li" [second;first]
+    | (Immediate _, EffectiveAddress _) -> string_of_instruction "li" ["t0"; first] ^ string_of_instruction "sd" ["t0"; second]
+
     | (Register _, Immediate _) -> raise (Failure "trying to move imm -> imm")
-    | (EffectiveAddress _,  _) -> "  sd " ^ second ^ ", " ^ first ^ "\n"
-    | (Immediate _, Register _) -> "  li " ^ second ^ ", " ^ first ^ "\n"
-    | (Immediate _, EffectiveAddress _) -> "  li t0, " ^ first ^ "\n" ^ "  sd t0, " ^ second ^ "\n"
+    | (Register _, Symbol _) -> failwith "Unimpl reg -> sym"
     | (Immediate _, Symbol _) -> failwith "Unimpl imm -> sym"
     | (Immediate _, Immediate _) -> raise (Failure "trying to move imm -> imm")
 
@@ -144,11 +153,11 @@ let construct_add_operator dest operand1 operand2 =
   match dest with
   | Register _ -> (
      match (operand1, operand2) with
+     | (Register _ , Immediate _) -> string_of_instruction "addi" [dst_string;first;second]
+     | (Immediate _, Register _) -> string_of_instruction "addi" [dst_string;second;first]
+     | (Register _, Register _) -> string_of_instruction "add" [dst_string;first;second]
      | (Symbol _, _) -> raise (Failure "Cant add with symbol")
      | (Immediate _ , Immediate _) -> failwith "Unimplemented arith eval for add rf ,imm, imm"
-     | (Register _ , Immediate _) -> "  addi " ^ dst_string ^ ", " ^ first ^ ", " ^ second ^ "\n"
-     | (Immediate _, Register _) -> "  addi " ^ dst_string ^ ", " ^ second ^ ", " ^ first ^ "\n"
-     | (Register _, Register _) -> "  add " ^ dst_string ^ ", " ^ first ^ ", " ^ second ^ "\n"
      | _ -> failwith "Uimplemented in construct_add_operator"
   )
   | _ -> failwith "Unimpl add to nonregister"
@@ -164,7 +173,7 @@ let rec generate_code_rec tac =
         let destination = List.nth args 0 in
         let first_arg = List.nth args 1 in
         let second_arg = List.nth args 2 in
-        construct_add_operator destination first_arg second_arg ^ generate_code_rec t        
+        construct_add_operator destination first_arg second_arg ^ generate_code_rec t
      | Move ->
         assert(List.length args = 2);
         let source = List.nth args 0 in
