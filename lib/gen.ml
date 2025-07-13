@@ -66,30 +66,37 @@ let add_instr (arg1: ir_arg) (arg2: ir_arg) (arg3: ir_arg) =
 let call_instr =
   (Call, [])
 
-let rec create_instr_for_expr expr (rlist: literal list) =
+let fold_bop arg1 arg2 op =
+  match op with
+  | Sub -> arg1 - arg2
+  | Add -> arg1 + arg2
+  | Mul -> arg1 * arg2
+  | Div -> arg1 / arg2
+
+let rec eval_expr expr (rlist: literal list) =
   match expr with
-  | Bop (x, y, z) ->
-     let tac_x, rlist, reg_x = create_instr_for_expr x rlist in
-     let tac_z, rlist, reg_z = create_instr_for_expr z rlist in
-     let new_reg = List.hd rlist in
-     let rlist = List.tl rlist in
+  | Constant x ->
+     ([], rlist, Immediate x)
+  | Variable x ->
+     let reg, _ = Hashtbl.find symbol_table x in
+     ([(None, [])] , rlist, reg)
+  | Bop (x, y, z) -> (
+     let tac_x, rlist, arg_x = eval_expr x rlist in
+     let tac_z, rlist, arg_z = eval_expr z rlist in
+     match (arg_x, arg_z) with
+     | (Immediate x, Immediate z) -> ([], rlist, Immediate (fold_bop x z y))
+     | _ -> 
+     let new_arg, rlist = (Register (List.hd rlist), List.tl rlist) in
      let instruction =
        match y with
-       | Add -> add_instr (Register new_reg) (Register reg_x) (Register reg_z)
+       | Add -> add_instr new_arg arg_x arg_z
        | Sub -> failwith "Unimplemented binary operation in create_instr_for expr"
        | Div -> failwith "Unimplemented binary operation in create_instr_for expr"
        | Mul -> failwith "Unimplemented binary operation in create_instr_for expr"
      in
      let tac_list = List.concat [tac_x; tac_z; [instruction]] in
-     (tac_list, rlist, new_reg)
-  | Constant x ->
-     let new_reg = List.hd rlist in
-     let rlist = List.tl rlist in
-     let instruction = move_instr (Immediate x) (Register new_reg) in
-     ([instruction], rlist, new_reg)
-  | Variable x ->
-     let reg, _ = Hashtbl.find symbol_table x in
-     ([(None, [])] , rlist, reg)
+     (tac_list, rlist, new_arg)
+  )
   | _ -> failwith "Unimplemented in create_instr_for_expr"
 
 let rec create_dagnode ast rlist =
@@ -98,12 +105,12 @@ let rec create_dagnode ast rlist =
   | h :: t ->
     match h with
     | Assignment (x, y) ->
-       let tac_list, rlist, reg = create_instr_for_expr y rlist in
-       Hashtbl.add symbol_table x (reg, false);
+       let tac_list, rlist, arg = eval_expr y rlist in
+       Hashtbl.add symbol_table x (arg, false);
        List.concat [tac_list ; create_dagnode t rlist]
     | ReturnStatement x ->
-       let tac_list, rlist, reg = create_instr_for_expr x rlist in
-       let first_move = move_instr (Register reg) (Register 10) in
+       let tac_list, rlist, arg = eval_expr x rlist in
+       let first_move = move_instr arg (Register 10) in
        let second_move = move_instr (Immediate 94) (Register 16) in
        List.concat [tac_list ;  [first_move] ; [second_move] ; [call_instr] ; create_dagnode t rlist]
     | EndStatement -> []
@@ -132,19 +139,18 @@ let string_of_instruction operator operand_list =
 let construct_move_operator operand1 operand2 =
   let first = string_of_ir_arg operand1 in
   let second = string_of_ir_arg operand2 in
-  if first = second then "" else
-    match (operand1, operand2) with
-    | (Symbol _, _ ) ->  string_of_instruction "la" [second; first]
-    | (Register _, Register _) -> string_of_instruction "add" [second; first; "zero"]
-    | (Register _, EffectiveAddress _) -> string_of_instruction "sd" [second;first]
-    | (EffectiveAddress _,  _) -> string_of_instruction "sd" [second;first]
-    | (Immediate _, Register _) -> string_of_instruction "li" [second;first]
-    | (Immediate _, EffectiveAddress _) -> string_of_instruction "li" ["t0"; first] ^ string_of_instruction "sd" ["t0"; second]
+  match (operand1, operand2) with
+  | (Symbol _, _ ) ->  string_of_instruction "la" [second; first]
+  | (Register _, Register _) -> string_of_instruction "add" [second; first; "zero"]
+  | (Register _, EffectiveAddress _) -> string_of_instruction "sd" [second;first]
+  | (EffectiveAddress _,  _) -> string_of_instruction "sd" [second;first]
+  | (Immediate _, Register _) -> string_of_instruction "li" [second;first]
+  | (Immediate _, EffectiveAddress _) -> string_of_instruction "li" ["t0"; first] ^ string_of_instruction "sd" ["t0"; second]
 
-    | (Register _, Immediate _) -> raise (Failure "trying to move imm -> imm")
-    | (Register _, Symbol _) -> failwith "Unimpl reg -> sym"
-    | (Immediate _, Symbol _) -> failwith "Unimpl imm -> sym"
-    | (Immediate _, Immediate _) -> raise (Failure "trying to move imm -> imm")
+  | (Register _, Immediate _) -> raise (Failure "trying to move imm -> imm")
+  | (Register _, Symbol _) -> failwith "Unimpl reg -> sym"
+  | (Immediate _, Symbol _) -> failwith "Unimpl imm -> sym"
+  | (Immediate _, Immediate _) -> raise (Failure "trying to move imm -> imm")
 
 let construct_add_operator dest operand1 operand2 =
   let dst_string = string_of_ir_arg dest in
@@ -157,7 +163,7 @@ let construct_add_operator dest operand1 operand2 =
      | (Immediate _, Register _) -> string_of_instruction "addi" [dst_string;second;first]
      | (Register _, Register _) -> string_of_instruction "add" [dst_string;first;second]
      | (Symbol _, _) -> raise (Failure "Cant add with symbol")
-     | (Immediate _ , Immediate _) -> failwith "Unimplemented arith eval for add rf ,imm, imm"
+     | (Immediate _ , Immediate _) -> failwith "Unimplemented arith eval for add dst, imm, imm"
      | _ -> failwith "Uimplemented in construct_add_operator"
   )
   | _ -> failwith "Unimpl add to nonregister"
