@@ -57,22 +57,39 @@ let riscv64_reg_list = [|
 
 let symbol_table = Hashtbl.create 16
 
-let move_instr arg1 arg2  =
-  (Move, arg1 :: [arg2])
+let move_instr (arg1: ir_arg) (arg2: ir_arg) =
+  (Move, [arg1; arg2])
+
+let add_instr (arg1: ir_arg) (arg2: ir_arg) (arg3: ir_arg) =
+  (Add, [arg1;arg2;arg3])
 
 let call_instr =
   (Call, [])
 
-let create_instr_for_expr expr rlist =
+let rec create_instr_for_expr expr (rlist: literal list) =
   match expr with
+  | Bop (x, y, z) ->
+     let tac_x, rlist, reg_x = create_instr_for_expr x rlist in
+     let tac_z, rlist, reg_z = create_instr_for_expr z rlist in
+     let new_reg = List.hd rlist in
+     let rlist = List.tl rlist in
+     let instruction =
+       match y with
+       | Add -> add_instr (Register new_reg) (Register reg_x) (Register reg_z)
+       | Sub -> failwith "Unimplemented binary operation in create_instr_for expr"
+       | Div -> failwith "Unimplemented binary operation in create_instr_for expr"
+       | Mul -> failwith "Unimplemented binary operation in create_instr_for expr"
+     in
+     let tac_list = List.concat [tac_x; tac_z; [instruction]] in
+     (tac_list, rlist, new_reg)
   | Constant x ->
      let new_reg = List.hd rlist in
      let rlist = List.tl rlist in
      let instruction = move_instr (Immediate x) (Register new_reg) in
-     (instruction, rlist, new_reg)
+     ([instruction], rlist, new_reg)
   | Variable x ->
      let reg, _ = Hashtbl.find symbol_table x in
-     ((None, []) , rlist, reg)
+     ([(None, [])] , rlist, reg)
   | _ -> failwith "Unimplemented in create_instr_for_expr"
 
 let rec create_dagnode ast rlist =
@@ -83,19 +100,18 @@ let rec create_dagnode ast rlist =
     | Assignment (x, y) ->
        let tac_list, rlist, reg = create_instr_for_expr y rlist in
        Hashtbl.add symbol_table x (reg, false);
-       tac_list :: create_dagnode t rlist
+       List.concat [tac_list ; create_dagnode t rlist]
     | ReturnStatement x ->
        let tac_list, rlist, reg = create_instr_for_expr x rlist in
        let first_move = move_instr (Register reg) (Register 10) in
        let second_move = move_instr (Immediate 94) (Register 16) in
-       tac_list ::  first_move :: second_move :: call_instr :: create_dagnode t rlist
+       List.concat [tac_list ;  [first_move] ; [second_move] ; [call_instr] ; create_dagnode t rlist]
     | EndStatement -> []
     | _ -> raise (Failure "Can't create node for DAG")
 
 let create_dag ast =
   let reg_list = [10;11;12;13;14;15;16;17;18;19;20;21;22;23;24;25;26;27] in
   create_dagnode ast reg_list
-
 
 let string_of_ir_arg arg =
   match arg with
@@ -104,27 +120,38 @@ let string_of_ir_arg arg =
   | Symbol x -> x
   | EffectiveAddress (x, y) -> string_of_int x ^ "(" ^ riscv64_reg_list.(y) ^ ")"
 
+
 let construct_move_operator operand1 operand2 =
   let first = string_of_ir_arg operand1 in
   let second = string_of_ir_arg operand2 in
   if first = second then "" else
-    match operand1 with
-    | Symbol _ ->   "  la " ^ second ^ ", " ^ first ^ "\n"
-    | Register _ ->  (
-       match operand2 with
-       | Register _ -> "  add " ^ second ^ ", " ^ first ^ ", zero\n"
-       | Symbol _ -> failwith "Unimpl reg -> sym"
-       | EffectiveAddress _ -> "  sd " ^ second ^ ", " ^ first ^ "\n"
-       | Immediate _ -> raise (Failure "trying to move imm -> imm")
-    )
-    | EffectiveAddress _ -> "  sd " ^ second ^ ", " ^ first ^ "\n"
-    | Immediate _ -> (
-       match operand2 with
-       | Register _ -> "  li " ^ second ^ ", " ^ first ^ "\n"
-       | Symbol _ -> failwith "Unimpl imm -> sym"
-       | EffectiveAddress _ -> "  li t0, " ^ first ^ "\n" ^ "  sd t0, " ^ second ^ "\n"
-       | Immediate _ -> raise (Failure "trying to move imm -> imm")
-    )
+    match (operand1, operand2) with
+    | (Symbol _, _ ) ->   "  la " ^ second ^ ", " ^ first ^ "\n"
+    | (Register _, Register _) -> "  add " ^ second ^ ", " ^ first ^ ", zero\n"
+    | (Register _, Symbol _) -> failwith "Unimpl reg -> sym"
+    | (Register _, EffectiveAddress _) -> "  sd " ^ second ^ ", " ^ first ^ "\n"
+    | (Register _, Immediate _) -> raise (Failure "trying to move imm -> imm")
+    | (EffectiveAddress _,  _) -> "  sd " ^ second ^ ", " ^ first ^ "\n"
+    | (Immediate _, Register _) -> "  li " ^ second ^ ", " ^ first ^ "\n"
+    | (Immediate _, EffectiveAddress _) -> "  li t0, " ^ first ^ "\n" ^ "  sd t0, " ^ second ^ "\n"
+    | (Immediate _, Symbol _) -> failwith "Unimpl imm -> sym"
+    | (Immediate _, Immediate _) -> raise (Failure "trying to move imm -> imm")
+
+let construct_add_operator dest operand1 operand2 =
+  let dst_string = string_of_ir_arg dest in
+  let first = string_of_ir_arg operand1 in
+  let second = string_of_ir_arg operand2 in
+  match dest with
+  | Register _ -> (
+     match (operand1, operand2) with
+     | (Symbol _, _) -> raise (Failure "Cant add with symbol")
+     | (Immediate _ , Immediate _) -> failwith "Unimplemented arith eval for add rf ,imm, imm"
+     | (Register _ , Immediate _) -> "  addi " ^ dst_string ^ ", " ^ first ^ ", " ^ second ^ "\n"
+     | (Immediate _, Register _) -> "  addi " ^ dst_string ^ ", " ^ second ^ ", " ^ first ^ "\n"
+     | (Register _, Register _) -> "  add " ^ dst_string ^ ", " ^ first ^ ", " ^ second ^ "\n"
+     | _ -> failwith "Uimplemented in construct_add_operator"
+  )
+  | _ -> failwith "Unimpl add to nonregister"
 
 let rec generate_code_rec tac =
   match tac with
@@ -132,6 +159,12 @@ let rec generate_code_rec tac =
   | h :: t ->
      let op_code, args = h in
      match op_code with
+     | Add ->
+        assert(List.length args = 3);
+        let destination = List.nth args 0 in
+        let first_arg = List.nth args 1 in
+        let second_arg = List.nth args 2 in
+        construct_add_operator destination first_arg second_arg ^ generate_code_rec t        
      | Move ->
         assert(List.length args = 2);
         let source = List.nth args 0 in
@@ -140,7 +173,7 @@ let rec generate_code_rec tac =
      | Call ->
         "  ecall\n" ^ generate_code_rec t
      | None -> generate_code_rec t
-     | _ -> failwith "Unimplemented in generate_code_rec"
+     (* | _ -> failwith "Unimplemented in generate_code_rec" *)
 
 let generate_code dagnode =
   ".section .data\n.text\n.global _start\n_start:\n"
