@@ -4,6 +4,7 @@ open Parse
 type op_code = Move (* move source, destination*)
              | Call
              | Add
+             | None
 
 type ir_arg = Register of int
             | Immediate of int
@@ -63,7 +64,7 @@ let call_instr =
   (Call, [])
 
 let create_instr_for_expr expr rlist =
-  match expr with 
+  match expr with
   | Constant x ->
      let new_reg = List.hd rlist in
      let rlist = List.tl rlist in
@@ -71,16 +72,13 @@ let create_instr_for_expr expr rlist =
      (instruction, rlist, new_reg)
   | Variable x ->
      let reg, _ = Hashtbl.find symbol_table x in
-     let new_reg = List.hd rlist in
-     let rlist = List.tl rlist in
-     let instruction = move_instr (Register reg) (Register new_reg) in
-     (instruction, rlist, reg)
+     ((None, []) , rlist, reg)
   | _ -> failwith "Unimplemented in create_instr_for_expr"
 
 let rec create_dagnode ast rlist =
   match ast with
   | [] -> []
-  | h :: t -> 
+  | h :: t ->
     match h with
     | Assignment (x, y) ->
        let tac_list, rlist, reg = create_instr_for_expr y rlist in
@@ -88,7 +86,7 @@ let rec create_dagnode ast rlist =
        tac_list :: create_dagnode t rlist
     | ReturnStatement x ->
        let tac_list, rlist, reg = create_instr_for_expr x rlist in
-       let first_move = move_instr (Register reg) (Register 10) in 
+       let first_move = move_instr (Register reg) (Register 10) in
        let second_move = move_instr (Immediate 94) (Register 16) in
        tac_list ::  first_move :: second_move :: call_instr :: create_dagnode t rlist
     | EndStatement -> []
@@ -100,14 +98,14 @@ let create_dag ast =
 
 
 let string_of_ir_arg arg =
-  match arg with 
+  match arg with
   | Register x ->  riscv64_reg_list.(x)
   | Immediate x -> string_of_int x
   | Symbol x -> x
   | EffectiveAddress (x, y) -> string_of_int x ^ "(" ^ riscv64_reg_list.(y) ^ ")"
 
 let construct_move_operator operand1 operand2 =
-  let first = string_of_ir_arg operand1 in 
+  let first = string_of_ir_arg operand1 in
   let second = string_of_ir_arg operand2 in
   if first = second then "" else
     match operand1 with
@@ -127,11 +125,11 @@ let construct_move_operator operand1 operand2 =
        | EffectiveAddress _ -> "  li t0, " ^ first ^ "\n" ^ "  sd t0, " ^ second ^ "\n"
        | Immediate _ -> raise (Failure "trying to move imm -> imm")
     )
-  
-let rec generate_code_rec tac = 
+
+let rec generate_code_rec tac =
   match tac with
   | [] -> ""
-  | h :: t -> 
+  | h :: t ->
      let op_code, args = h in
      match op_code with
      | Move ->
@@ -141,6 +139,7 @@ let rec generate_code_rec tac =
         construct_move_operator source destination ^ generate_code_rec t
      | Call ->
         "  ecall\n" ^ generate_code_rec t
+     | None -> generate_code_rec t
      | _ -> failwith "Unimplemented in generate_code_rec"
 
 let generate_code dagnode =
