@@ -3,7 +3,7 @@ open Parse
 
 type op_code = Move
              | Call
-             | Add
+             | ArithInstr of op
              | BranchJump of bool_op * int
              | Jump of int
              | Label of int
@@ -83,8 +83,8 @@ let branch_instr (sign: bool_op) (operand1: ir_arg) (operand2: ir_arg) (label: i
   let num = get_label_num label in
   (BranchJump (sign, num), [operand1; operand2])
 
-let add_instr (arg1: ir_arg) (arg2: ir_arg) (arg3: ir_arg) =
-  (Add, [arg1;arg2;arg3])
+let arith_instr op (arg1: ir_arg) (arg2: ir_arg) (arg3: ir_arg) =
+  (ArithInstr op, [arg1; arg2; arg3])
 
 let call_instr =
   (Call, [])
@@ -104,6 +104,7 @@ let fold_bop arg1 arg2 op =
   | Add -> arg1 + arg2
   | Mul -> arg1 * arg2
   | Div -> arg1 / arg2
+  | Rem -> arg1 mod arg2 (*TODO: test this*)
 
 let rec eval_expr expr (rlist: literal list) =
   match expr with
@@ -122,13 +123,7 @@ let rec eval_expr expr (rlist: literal list) =
      | (Immediate x, Immediate z) -> ([], rlist, Immediate (fold_bop x z y))
      | _ -> 
         let new_arg, rlist = (Register (List.hd rlist), List.tl rlist) in
-        let instruction =
-          match y with
-          | Add -> add_instr new_arg arg_x arg_z
-          | Sub -> failwith "Unimplemented binary operation in create_instr_for expr"
-          | Div -> failwith "Unimplemented binary operation in create_instr_for expr"
-          | Mul -> failwith "Unimplemented binary operation in create_instr_for expr"
-        in
+        let instruction = arith_instr y new_arg arg_x arg_z in
         let tac_list = List.concat [tac_x; tac_z; [instruction]] in
         (tac_list, rlist, new_arg)
   )
@@ -227,11 +222,51 @@ let construct_add_operator dest operand1 operand2 =
      | (Immediate _, Register _) -> string_of_instruction "addi" [dst_string;second;first]
      | (Register _, Register _) -> string_of_instruction "add" [dst_string;first;second]
      | (Symbol _, _) -> raise (Failure "Cant add with symbol")
-     | (Immediate _ , Immediate _) -> failwith "Unimplemented arith eval for add dst, imm, imm"
+     | (Immediate _ , Immediate _) -> raise (Failure "Illegal state: sub reg, imm, imm")
      | _ -> failwith "Uimplemented in construct_add_operator"
   )
   | _ -> failwith "Unimpl add to nonregister"
 
+let construct_sub_operator dest operand1 operand2 =
+  let dst_string = string_of_ir_arg dest in
+  let first = string_of_ir_arg operand1 in
+  let second = string_of_ir_arg operand2 in
+  match dest with
+  | Register _ -> (
+     match (operand1, operand2) with
+     | (Register _ , Immediate _) -> string_of_instruction "addi" [dst_string;first; "-" ^ second]
+     | (Immediate _, Register _) -> string_of_instruction "addi" [dst_string;second; "-" ^ first]
+     | (Register _, Register _) -> string_of_instruction "sub" [dst_string;first;second]
+     | (Symbol _, _) -> raise (Failure "Cant sub with symbol")
+     | (Immediate _ , Immediate _) -> raise (Failure "Illegal state: sub reg, imm, imm")
+     | _ -> failwith "Uimplemented in construct_add_operator"
+  )
+  | _ -> failwith "Unimpl add to nonregister"
+
+let construct_generic_operator string dest operand1 operand2 =
+  let dst_string = string_of_ir_arg dest in
+  let first = string_of_ir_arg operand1 in
+  let second = string_of_ir_arg operand2 in
+  match dest with
+  | Register _ -> (
+     match (operand1, operand2) with
+     (* | (Register _ , Immediate _) -> string_of_instruction "addi" [dst_string;first; "-" ^ second] *)
+     (* | (Immediate _, Register _) -> string_of_instruction "addi" [dst_string;second; "-" ^ first] *)
+     | (Register _, Register _) -> string_of_instruction string [dst_string;first;second]
+     | (Symbol _, _) -> raise (Failure "Cant sub with symbol")
+     | (Immediate _ , Immediate _) -> raise (Failure "Illegal state: sub reg, imm, imm")
+     | _ -> failwith "Uimplemented in construct_add_operator"
+  )
+  | _ -> failwith "Unimpl add to nonregister"
+
+let construct_arith_operator op dest operand1 operand2 =
+  match op with
+  | Add -> construct_add_operator dest operand1 operand2
+  | Sub -> construct_sub_operator dest operand1 operand2
+  | Mul -> construct_generic_operator "mul" dest operand1 operand2
+  | Div -> construct_generic_operator "div" dest operand1 operand2
+  | Rem -> construct_generic_operator "rem" dest operand1 operand2
+  
 let construct_branchjump_operator bool_op operand1 operand2 label = 
   let op_string = 
     match bool_op with
@@ -261,12 +296,12 @@ let rec generate_code_rec tac =
           construct_move_operator source destination
        | Call ->
           "  ecall\n"
-       | Add ->
+       | ArithInstr op ->
           assert(List.length args = 3);
           let destination = List.nth args 0 in
           let first_arg = List.nth args 1 in
           let second_arg = List.nth args 2 in
-          construct_add_operator destination first_arg second_arg
+          construct_arith_operator op destination first_arg second_arg
        | BranchJump (bool_op, num_label) ->
           assert(List.length args = 2);
           let operand1 = List.nth args 0 in

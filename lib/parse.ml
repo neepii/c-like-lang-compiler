@@ -27,6 +27,7 @@ type op = Add
         | Sub
         | Mul
         | Div
+        | Rem
 
 type bool_op = GreaterEqual
              | LessEqual
@@ -115,6 +116,7 @@ let get_sign str =
   | "-" -> Sub
   | "*" -> Mul
   | "/" -> Div
+  | "%" -> Div
   | _ -> raise (Failure "Can't parse arithmetic operator")
 
 let get_string_bool_op str =
@@ -132,7 +134,7 @@ let get_string_sign oper =
   | Sub -> "-"
   | Mul -> "*"
   | Div -> "/"
-
+  | Rem -> "%"
 
 let rec parse_sum token_list =
   match token_list with
