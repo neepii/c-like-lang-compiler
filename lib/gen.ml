@@ -104,7 +104,7 @@ let fold_bop arg1 arg2 op =
   | Add -> arg1 + arg2
   | Mul -> arg1 * arg2
   | Div -> arg1 / arg2
-  | Rem -> arg1 mod arg2 (*TODO: test this*)
+  | Rem -> arg1 mod arg2 (*TODO: test if this is actually a remainder *)
 
 let rec eval_expr expr (rlist: literal list) =
   match expr with
@@ -121,7 +121,7 @@ let rec eval_expr expr (rlist: literal list) =
      let tac_z, rlist, arg_z = eval_expr z rlist in
      match (arg_x, arg_z) with
      | (Immediate x, Immediate z) -> ([], rlist, Immediate (fold_bop x z y))
-     | _ -> 
+     | _ ->
         let new_arg, rlist = (Register (List.hd rlist), List.tl rlist) in
         let instruction = arith_instr y new_arg arg_x arg_z in
         let tac_list = List.concat [tac_x; tac_z; [instruction]] in
@@ -147,8 +147,7 @@ let rec create_tac_list ast rlist =
          let tac_list, rlist, arg = eval_expr y rlist in
          let move = move_instr arg reg in
          Hashtbl.add symbol_table x (reg, false);
-         List.concat [tac_list ; [move] ; create_tac_list t rlist] (* list.concat is slow, make your concat specifically for tac's*)
-         
+         List.concat [tac_list ; [move] ; create_tac_list t rlist]
     | ReturnStatement x ->
        let tac_list, rlist, arg = eval_expr x rlist in
        let first_move = move_instr arg (Register 10) in
@@ -157,20 +156,34 @@ let rec create_tac_list ast rlist =
     | WhileStatement (x, y)  -> (
       let start_label = label_instr label_counter in
       let end_label = label_instr label_counter in
-      Printf.printf "%b\n" (start_label = end_label);
-       match x with 
-       | BoolBop (a, sign, b) -> 
+       match x with
+       | BoolBop (a, sign, b) ->
           let tac_list_1, rlist, expr1 = eval_expr a rlist in
           let tac_list_2, rlist, expr2 = eval_expr b rlist in
           let branch = branch_instr (negate_bool_op sign) expr1 expr2 end_label in
           let jump = jump_instr start_label in
-          let body = create_tac_list y rlist in 
+          let body = create_tac_list y rlist in
           (* this create list will not return rlist, because of new frame, i need to create tests to make sure it actually works *)
           List.concat [[start_label] ; tac_list_1 ; tac_list_2 ; [branch] ; body ; [jump; end_label] ; create_tac_list t rlist]
        | _ -> failwith "Unimplemented: While statement without relation")
-
+    | IfStatement (x, y, z) ->
+       let skip_then_branch_label = label_instr label_counter in
+       (match x with
+         | BoolBop (a, sign, b) ->
+          let tac_list_1, rlist, expr1 = eval_expr a rlist in
+          let tac_list_2, rlist, expr2 = eval_expr b rlist in
+          let branch = branch_instr (negate_bool_op sign) expr1 expr2 skip_then_branch_label in
+          let then_body = create_tac_list y rlist in
+          if z = [] then
+            List.concat [tac_list_1 ; tac_list_2 ; [branch] ; then_body ; [skip_then_branch_label] ; create_tac_list t rlist]
+          else
+            let jump = jump_instr skip_then_branch_label in
+            let else_body = create_tac_list z rlist in
+            let end_label = label_instr label_counter in
+            List.concat [tac_list_1 ; tac_list_2 ; [branch] ; then_body ; [jump] ; [skip_then_branch_label] ; else_body ; [end_label] ; create_tac_list t rlist]
+         | _ -> failwith "Unimplemented: If statement without relation")
     | EndStatement -> []
-    | _ -> raise (Failure "Can't create node for DAG")
+    (* | _ -> raise (Failure "Can't create node for DAG") *)
 
 let create_dag ast =
   let reg_list = [10;11;12;13;14;15;16;17;18;19;20;21;22;23;24;25;26;27] in
@@ -190,8 +203,8 @@ let string_of_instruction operator operand_list =
   match operand_list with
   | [] -> "  " ^ operator ^ "\n"
   | x :: [] -> "  " ^ operator ^ " " ^ x ^ "\n"
-  | h :: t -> 
-     let list = List.map (fun str -> ", " ^ str) t in 
+  | h :: t ->
+     let list = List.map (fun str -> ", " ^ str) t in
      let tail_string = List.fold_left ( ^ ) "" list in
      "  " ^ operator ^ " " ^ h ^ tail_string  ^ "\n"
 
@@ -266,9 +279,9 @@ let construct_arith_operator op dest operand1 operand2 =
   | Mul -> construct_generic_operator "mul" dest operand1 operand2
   | Div -> construct_generic_operator "div" dest operand1 operand2
   | Rem -> construct_generic_operator "rem" dest operand1 operand2
-  
-let construct_branchjump_operator bool_op operand1 operand2 label = 
-  let op_string = 
+
+let construct_branchjump_operator bool_op operand1 operand2 label =
+  let op_string =
     match bool_op with
     | GreaterEqual -> "beq"
     | LessEqual -> "ble"
@@ -287,7 +300,7 @@ let rec generate_code_rec tac =
   | [] -> ""
   | h :: t ->
      let op_code, args = h in
-     let tac = 
+     let tac =
        match op_code with
        | Move ->
           assert(List.length args = 2);
@@ -306,7 +319,7 @@ let rec generate_code_rec tac =
           assert(List.length args = 2);
           let operand1 = List.nth args 0 in
           let operand2 = List.nth args 1 in
-          construct_branchjump_operator bool_op operand1 operand2 (string_of_label num_label) 
+          construct_branchjump_operator bool_op operand1 operand2 (string_of_label num_label)
        | Jump dest ->
           string_of_instruction "j" [string_of_label dest]
        | Label num ->
