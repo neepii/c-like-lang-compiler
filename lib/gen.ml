@@ -1,9 +1,12 @@
 (* -*- compile-command: "opam exec -- dune exec compiler"; -*- *)
 open Parse
 
-type op_code = Move (* move source, destination*)
+type op_code = Move
              | Call
              | Add
+             | BranchJump of bool_op * int
+             | Jump of int
+             | Label of int
              | None
 
 type ir_arg = Register of int
@@ -13,7 +16,7 @@ type ir_arg = Register of int
 
 type ir_instr = op_code * ir_arg list
 
-type dagnode = ir_instr list
+type tac_list = ir_instr list
 
 type symbol = {
     num: int;
@@ -60,11 +63,40 @@ let symbol_table = Hashtbl.create 16
 let move_instr (arg1: ir_arg) (arg2: ir_arg) =
   (Move, [arg1; arg2])
 
+let label_counter = ref 0
+
+let label_instr counter =
+  counter := (!counter) + 1;
+  (Label !counter, [])
+
+let get_label_num label =
+  let label_num, _ = label in
+  match label_num with
+  | Label x -> x
+  | _ -> raise (Failure "Can't create jump tac")
+
+let jump_instr label =
+  let num = get_label_num label in
+  (Jump num, [])
+
+let branch_instr (sign: bool_op) (operand1: ir_arg) (operand2: ir_arg) (label: ir_instr) =
+  let num = get_label_num label in
+  (BranchJump (sign, num), [operand1; operand2])
+
 let add_instr (arg1: ir_arg) (arg2: ir_arg) (arg3: ir_arg) =
   (Add, [arg1;arg2;arg3])
 
 let call_instr =
   (Call, [])
+
+let negate_bool_op bool_op =
+  match bool_op with
+  | GreaterEqual -> Less
+  | LessEqual -> GreaterEqual
+  | Greater -> LessEqual
+  | Less -> GreaterEqual
+  | Equal -> NotEqual
+  | NotEqual -> Equal
 
 let fold_bop arg1 arg2 op =
   match op with
@@ -76,7 +108,10 @@ let fold_bop arg1 arg2 op =
 let rec eval_expr expr (rlist: literal list) =
   match expr with
   | Constant x ->
-     ([], rlist, Immediate x)
+     let new_reg = List.hd rlist in
+     let rlist = List.tl rlist in
+     let move = move_instr (Immediate x) (Register new_reg) in
+     ([move], rlist, Register new_reg)
   | Variable x ->
      let reg, _ = Hashtbl.find symbol_table x in
      ([(None, [])] , rlist, reg)
@@ -86,39 +121,68 @@ let rec eval_expr expr (rlist: literal list) =
      match (arg_x, arg_z) with
      | (Immediate x, Immediate z) -> ([], rlist, Immediate (fold_bop x z y))
      | _ -> 
-     let new_arg, rlist = (Register (List.hd rlist), List.tl rlist) in
-     let instruction =
-       match y with
-       | Add -> add_instr new_arg arg_x arg_z
-       | Sub -> failwith "Unimplemented binary operation in create_instr_for expr"
-       | Div -> failwith "Unimplemented binary operation in create_instr_for expr"
-       | Mul -> failwith "Unimplemented binary operation in create_instr_for expr"
-     in
-     let tac_list = List.concat [tac_x; tac_z; [instruction]] in
-     (tac_list, rlist, new_arg)
+        let new_arg, rlist = (Register (List.hd rlist), List.tl rlist) in
+        let instruction =
+          match y with
+          | Add -> add_instr new_arg arg_x arg_z
+          | Sub -> failwith "Unimplemented binary operation in create_instr_for expr"
+          | Div -> failwith "Unimplemented binary operation in create_instr_for expr"
+          | Mul -> failwith "Unimplemented binary operation in create_instr_for expr"
+        in
+        let tac_list = List.concat [tac_x; tac_z; [instruction]] in
+        (tac_list, rlist, new_arg)
   )
   | _ -> failwith "Unimplemented in create_instr_for_expr"
 
-let rec create_dagnode ast rlist =
+let rec create_tac_list ast rlist =
   match ast with
   | [] -> []
   | h :: t ->
     match h with
     | Assignment (x, y) ->
-       let tac_list, rlist, arg = eval_expr y rlist in
-       Hashtbl.add symbol_table x (arg, false);
-       List.concat [tac_list ; create_dagnode t rlist]
+       if Hashtbl.find_opt symbol_table x = None then
+         let reg = List.hd rlist in
+         let rlist = List.tl rlist in
+         let tac_list, rlist, arg = eval_expr y rlist in
+         let move = move_instr arg (Register reg) in
+         Hashtbl.add symbol_table x (Register reg, false);
+         List.concat [tac_list ; [move] ; create_tac_list t rlist] (* list.concat is slow, make your concat specifically for tac's*)
+       else
+         let reg, _ = Hashtbl.find symbol_table x in
+         let tac_list, rlist, arg = eval_expr y rlist in
+         let move = move_instr arg reg in
+         Hashtbl.add symbol_table x (reg, false);
+         List.concat [tac_list ; [move] ; create_tac_list t rlist] (* list.concat is slow, make your concat specifically for tac's*)
+         
     | ReturnStatement x ->
        let tac_list, rlist, arg = eval_expr x rlist in
        let first_move = move_instr arg (Register 10) in
        let second_move = move_instr (Immediate 94) (Register 16) in
-       List.concat [tac_list ;  [first_move] ; [second_move] ; [call_instr] ; create_dagnode t rlist]
+       List.concat [tac_list ;  [first_move] ; [second_move] ; [call_instr] ; create_tac_list t rlist]
+    | WhileStatement (x, y)  -> (
+      let start_label = label_instr label_counter in
+      let end_label = label_instr label_counter in
+      Printf.printf "%b\n" (start_label = end_label);
+       match x with 
+       | BoolBop (a, sign, b) -> 
+          let tac_list_1, rlist, expr1 = eval_expr a rlist in
+          let tac_list_2, rlist, expr2 = eval_expr b rlist in
+          let branch = branch_instr (negate_bool_op sign) expr1 expr2 end_label in
+          let jump = jump_instr start_label in
+          let body = create_tac_list y rlist in 
+          (* this create list will not return rlist, because of new frame, i need to create tests to make sure it actually works *)
+          List.concat [[start_label] ; tac_list_1 ; tac_list_2 ; [branch] ; body ; [jump; end_label] ; create_tac_list t rlist]
+       | _ -> failwith "Unimplemented: While statement without relation")
+
     | EndStatement -> []
     | _ -> raise (Failure "Can't create node for DAG")
 
 let create_dag ast =
   let reg_list = [10;11;12;13;14;15;16;17;18;19;20;21;22;23;24;25;26;27] in
-  create_dagnode ast reg_list
+  create_tac_list ast reg_list
+
+let string_of_label num =
+  "L" ^ string_of_int num
 
 let string_of_ir_arg arg =
   match arg with
@@ -129,8 +193,8 @@ let string_of_ir_arg arg =
 
 let string_of_instruction operator operand_list =
   match operand_list with
-  | [] -> operator ^ "\n"
-  | x :: [] -> operator ^ " " ^ x ^ "\n"
+  | [] -> "  " ^ operator ^ "\n"
+  | x :: [] -> "  " ^ operator ^ " " ^ x ^ "\n"
   | h :: t -> 
      let list = List.map (fun str -> ", " ^ str) t in 
      let tail_string = List.fold_left ( ^ ) "" list in
@@ -168,29 +232,56 @@ let construct_add_operator dest operand1 operand2 =
   )
   | _ -> failwith "Unimpl add to nonregister"
 
+let construct_branchjump_operator bool_op operand1 operand2 label = 
+  let op_string = 
+    match bool_op with
+    | GreaterEqual -> "beq"
+    | LessEqual -> "ble"
+    | Greater -> "bgt"
+    | Less -> "blt"
+    | Equal -> "beq"
+    | NotEqual -> "bne"
+  in
+  let first = string_of_ir_arg operand1 in
+  let second = string_of_ir_arg operand2 in
+  string_of_instruction op_string [first;second;label]
+
+
 let rec generate_code_rec tac =
   match tac with
   | [] -> ""
   | h :: t ->
      let op_code, args = h in
-     match op_code with
-     | Add ->
-        assert(List.length args = 3);
-        let destination = List.nth args 0 in
-        let first_arg = List.nth args 1 in
-        let second_arg = List.nth args 2 in
-        construct_add_operator destination first_arg second_arg ^ generate_code_rec t
-     | Move ->
-        assert(List.length args = 2);
-        let source = List.nth args 0 in
-        let destination = List.nth args 1 in
-        construct_move_operator source destination ^ generate_code_rec t
-     | Call ->
-        "  ecall\n" ^ generate_code_rec t
-     | None -> generate_code_rec t
-     (* | _ -> failwith "Unimplemented in generate_code_rec" *)
+     let tac = 
+       match op_code with
+       | Move ->
+          assert(List.length args = 2);
+          let source = List.nth args 0 in
+          let destination = List.nth args 1 in
+          construct_move_operator source destination
+       | Call ->
+          "  ecall\n"
+       | Add ->
+          assert(List.length args = 3);
+          let destination = List.nth args 0 in
+          let first_arg = List.nth args 1 in
+          let second_arg = List.nth args 2 in
+          construct_add_operator destination first_arg second_arg
+       | BranchJump (bool_op, num_label) ->
+          assert(List.length args = 2);
+          let operand1 = List.nth args 0 in
+          let operand2 = List.nth args 1 in
+          construct_branchjump_operator bool_op operand1 operand2 (string_of_label num_label) 
+       | Jump dest ->
+          string_of_instruction "j" [string_of_label dest]
+       | Label num ->
+          string_of_label num ^ ":\n"
+       | None -> ""
+       (* | _ -> failwith "Unimplemented in generate_code_rec" *)
+     in
+     tac ^  generate_code_rec t
 
-let generate_code dagnode =
+let generate_code tac_list =
   ".section .data\n.text\n.global _start\n_start:\n"
   ^
-  generate_code_rec dagnode
+  generate_code_rec tac_list

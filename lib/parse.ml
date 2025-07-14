@@ -28,19 +28,18 @@ type op = Add
         | Mul
         | Div
 
-type rel = BiggerEqual
-         | LessEqual
-         | Bigger
-         | Less
-
-type equ = Equal
-         | NotEqual
+type bool_op = GreaterEqual
+             | LessEqual
+             | Greater
+             | Less
+             | Equal
+             | NotEqual
 
 type expr = Variable of string
           | Constant of literal
           | Bop of expr * op * expr
-          | Relation of expr * rel * expr
-          | Equality of expr * equ * expr
+          | BoolBop of expr * bool_op * expr
+
 
 type stmt = Assignment of ident * expr
           | IfStatement of expr * stmt list * stmt list
@@ -100,16 +99,12 @@ let parse_match (ttype: token_type) token_list =
     | [] -> raise (Failure "Can't match anything with empty list")
     | h :: t -> if snd h = ttype then t else raise (Failure ("Syntax error: match error on token " ^ (fst h)))
 
-let get_rel str =
+let get_bool_op str =
   match str with
-  | ">" -> Bigger
+  | ">" -> Greater
   | "<" -> Less
-  | ">=" -> BiggerEqual
+  | ">=" -> GreaterEqual
   | "<=" -> LessEqual
-  | _ -> raise (Failure "Can't parse relational operator")
-
-let get_equ str =
-  match str with
   | "==" -> Equal
   | "!=" -> NotEqual
   | _ -> raise (Failure "Can't parse equality operator")
@@ -122,18 +117,14 @@ let get_sign str =
   | "/" -> Div
   | _ -> raise (Failure "Can't parse arithmetic operator")
 
-(* i need to refactor this *)
-let get_string_rel str =
+let get_string_bool_op str =
   match str with
-  | Bigger      -> ">"
+  | Greater      -> ">"
   | Less        -> "<"
-  | BiggerEqual -> ">="
+  | GreaterEqual -> ">="
   | LessEqual   -> "<="
-
-let get_string_equ str =
-  match str with
-  |  Equal    -> "=="
-  |  NotEqual -> "!="
+  | Equal    -> "=="
+  | NotEqual -> "!="
 
 let get_string_sign oper =
   match oper with
@@ -204,13 +195,13 @@ let rec parse_expr token_list =
           let product, rem = parse_sum x in
           if rem = [] then (product, rem)
           else if snd (List.hd rem) = RelationalOperator then  (
-            let operator = get_rel (fst (List.hd rem)) in
+            let operator = get_bool_op (fst (List.hd rem)) in
             let expression, rem_expr = parse_expr (List.tl rem) in
-            (Relation (product, operator, expression), rem_expr))
+            (BoolBop (product, operator, expression), rem_expr))
           else if snd (List.hd rem) = EqualityOperator then  (
-            let operator = get_equ (fst (List.hd rem)) in
+            let operator = get_bool_op (fst (List.hd rem)) in
             let expression, rem_expr = parse_expr (List.tl rem) in
-            (Equality (product, operator, expression), rem_expr))
+            (BoolBop (product, operator, expression), rem_expr))
           else
             (product, rem)
 
@@ -269,17 +260,10 @@ let parse (token_list: (string * token_type) list) =
 
 let rec print_expr ast =
   match ast with
-  | Relation (x, y, z) ->
+  | BoolBop (x, y, z) ->
      print_string "(";
      print_expr x;
-     let sign = get_string_rel y in
-     print_string sign;
-     print_expr z;
-     print_string ")"
-  | Equality (x, y, z) ->
-     print_string "(";
-     print_expr x;
-     let sign = get_string_equ y in
+     let sign = get_string_bool_op y in
      print_string sign;
      print_expr z;
      print_string ")"
