@@ -1,9 +1,11 @@
 (* -*- compile-command: "opam exec -- dune exec compiler"; -*- *)
 open Parse
 
+
 type op_code = Move
              | Call
              | ArithInstr of op
+             | Neg
              | BranchJump of bool_op * int
              | Jump of int
              | Label of int
@@ -60,8 +62,11 @@ let riscv64_reg_list = [|
 
 let symbol_table = Hashtbl.create 16
 
-let move_instr (arg1: ir_arg) (arg2: ir_arg) =
-  (Move, [arg1; arg2])
+let move_instr (source: ir_arg) (destination: ir_arg) =
+  (Move, [source; destination])
+
+let neg_instr (source: ir_arg) (destination: ir_arg) =
+  (Neg, [source; destination])
 
 let label_counter = ref 0
 
@@ -117,6 +122,7 @@ let rec eval_expr expr (rlist: literal list) =
      let reg, _ = Hashtbl.find symbol_table x in
      ([(None, [])] , rlist, reg)
   | Bop (x, y, z) -> (
+    (*rewrite please*)
      let tac_x, rlist, arg_x = eval_expr x rlist in
      let tac_z, rlist, arg_z = eval_expr z rlist in
      match (arg_x, arg_z) with
@@ -127,6 +133,24 @@ let rec eval_expr expr (rlist: literal list) =
         let tac_list = List.concat [tac_x; tac_z; [instruction]] in
         (tac_list, rlist, new_arg)
   )
+  | Negation x -> (
+     match x with
+     | Constant x -> 
+        let new_reg = List.hd rlist in
+        let rlist = List.tl rlist in
+        let move = move_instr (Immediate (-x)) (Register new_reg) in
+        ([move], rlist, Register new_reg)
+     | _ -> (
+        let tac, rlist, arg = eval_expr x rlist in
+        let new_arg = List.hd rlist in
+        let rlist = List.tl rlist in
+        match arg with
+        | Register _ ->
+           let negation = neg_instr arg (Register new_arg) in
+           let tac_list = List.concat [tac; [negation]] in
+           (tac_list, rlist, Register new_arg)
+        | _-> failwith "Unimplemented negation for nonregister"
+  ))
   | _ -> failwith "Unimplemented in create_instr_for_expr"
 
 let rec create_tac_list ast rlist =
@@ -320,6 +344,13 @@ let rec generate_code_rec tac =
           construct_branchjump_operator bool_op operand1 operand2 (string_of_label num_label)
        | Jump dest ->
           string_of_instruction "j" [string_of_label dest]
+       | Neg ->
+          assert(List.length args = 2);
+          let source = List.nth args 0 in
+          let destination = List.nth args 1 in
+          let first = string_of_ir_arg source in
+          let second = string_of_ir_arg destination in
+          string_of_instruction "neg" [first; second]
        | Label num ->
           string_of_label num ^ ":\n"
        | None -> ""

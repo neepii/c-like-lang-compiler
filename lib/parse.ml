@@ -38,6 +38,7 @@ type bool_op = GreaterEqual
 
 type expr = Variable of string
           | Constant of literal
+          | Negation of expr
           | Bop of expr * op * expr
           | BoolBop of expr * bool_op * expr
 
@@ -157,7 +158,12 @@ and parse_prod token_list =
        (parse_const x, [])
     | h :: t ->
        match snd h with
-         (* refactor me *)
+       | FirstOperator ->
+          if fst h = "-" then
+            let product, rem = parse_prod t in
+            (Negation product, rem)
+          else
+            parse_prod t
        | LeftParenthesis ->
           let expression, rem = parse_sum t in
           let rem_without_rightparenthesis = parse_match RightParenthesis rem in
@@ -194,18 +200,18 @@ let rec parse_expr token_list =
     | [] -> raise (Failure "Illegal state in parse_expr")
     | x :: [] -> (fst (parse_sum [x])), []
     | x ->
-          let product, rem = parse_sum x in
-          if rem = [] then (product, rem)
+          let sum, rem = parse_sum x in
+          if rem = [] then (sum, rem)
           else if snd (List.hd rem) = RelationalOperator then  (
             let operator = get_bool_op (fst (List.hd rem)) in
             let expression, rem_expr = parse_expr (List.tl rem) in
-            (BoolBop (product, operator, expression), rem_expr))
+            (BoolBop (sum, operator, expression), rem_expr))
           else if snd (List.hd rem) = EqualityOperator then  (
             let operator = get_bool_op (fst (List.hd rem)) in
             let expression, rem_expr = parse_expr (List.tl rem) in
-            (BoolBop (product, operator, expression), rem_expr))
+            (BoolBop (sum, operator, expression), rem_expr))
           else
-            (product, rem)
+            (sum, rem)
 
 let rec parse_stmt (token_list: (string * token_type) list) =
   let stmt, tail =
@@ -277,6 +283,10 @@ let rec print_expr ast =
      print_expr z;
      print_string ")"
   | Constant x -> print_string ("(" ^ string_of_int x ^ ")")
+  | Negation x ->
+     print_string "(-";
+     print_expr x;
+     print_string ")";
   | Variable x -> print_string ("(" ^ x ^ ")")
 
 let rec print_stmt ast_list =

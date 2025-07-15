@@ -61,6 +61,18 @@ let%expect_test "parenthesis test 4" =
   print_expr (fst ast);
   [%expect {| (((2)+(3))*(4)) |}]
 
+let%expect_test "unary test 1" = 
+  let text = "-( 2 + 3 )" in
+  let ast = parse_expr (tokenize_text text) in
+  print_expr (fst ast);
+  [%expect {| (-((2)+(3))) |}]
+
+let%expect_test "unary test 1" = 
+  let text = "+( 3 * 3 )" in
+  let ast = parse_expr (tokenize_text text) in
+  print_expr (fst ast);
+  [%expect {| ((3)*(3)) |}]
+
 let%expect_test "assignment test 1" = 
   let text = "variable = 42 ;" in
   let ast = parse (tokenize_text text) in
@@ -97,6 +109,21 @@ let%expect_test "tokenizer test 2" =
   print_stmt ast;
   [%expect {| if (((1)+(2))) { (variable) = (1) ; } |}]
 
+let%expect_test "nested if's test" = 
+  let text = "
+              if (1) {
+                if (2) {
+                  if (3) {
+                    return 1;
+                  }
+                }
+              }
+              " in
+  let ast = parse (tokenize_text text) in
+  print_stmt ast;
+  [%expect {| if ((1)) { if ((2)) { if ((3)) { return (1) ; }}} |}]
+
+
 let%expect_test "factorial test" = 
   let text = "acc=1; n=6;\nwhile(n>1){\nacc=acc*n;n=n-1;}" in
   let ast = parse (tokenize_text text) in
@@ -108,3 +135,4 @@ let%expect_test "factorial test" =
   let ast = parse (tokenize_text text) in
   print_stmt ast;
   [%expect {| (bool) = ((n)>(1)) ; |}]
+
