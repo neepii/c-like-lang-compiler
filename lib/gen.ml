@@ -177,9 +177,9 @@ let rec create_tac_list ast rlist =
           if z = [] then
             List.concat [tac_list_1 ; tac_list_2 ; [branch] ; then_body ; [skip_then_branch_label] ; create_tac_list t rlist]
           else
-            let jump = jump_instr skip_then_branch_label in
-            let else_body = create_tac_list z rlist in
             let end_label = label_instr label_counter in
+            let jump = jump_instr end_label in
+            let else_body = create_tac_list z rlist in
             List.concat [tac_list_1 ; tac_list_2 ; [branch] ; then_body ; [jump] ; [skip_then_branch_label] ; else_body ; [end_label] ; create_tac_list t rlist]
          | _ -> failwith "Unimplemented: If statement without relation")
     | EndStatement -> []
@@ -263,8 +263,6 @@ let construct_generic_operator string dest operand1 operand2 =
   match dest with
   | Register _ -> (
      match (operand1, operand2) with
-     (* | (Register _ , Immediate _) -> string_of_instruction "addi" [dst_string;first; "-" ^ second] *)
-     (* | (Immediate _, Register _) -> string_of_instruction "addi" [dst_string;second; "-" ^ first] *)
      | (Register _, Register _) -> string_of_instruction string [dst_string;first;second]
      | (Symbol _, _) -> raise (Failure "Cant sub with symbol")
      | (Immediate _ , Immediate _) -> raise (Failure "Illegal state: sub reg, imm, imm")
@@ -283,7 +281,7 @@ let construct_arith_operator op dest operand1 operand2 =
 let construct_branchjump_operator bool_op operand1 operand2 label =
   let op_string =
     match bool_op with
-    | GreaterEqual -> "beq"
+    | GreaterEqual -> "bge"
     | LessEqual -> "ble"
     | Greater -> "bgt"
     | Less -> "blt"
