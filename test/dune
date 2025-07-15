@@ -12,6 +12,13 @@
  (preprocess (pps ppx_expect ))
  (inline_tests))
 
+(library
+ (name test_output)
+ (modules test_output)
+ (libraries base stdio compiler unix)
+ (preprocess (pps ppx_expect ))
+ (inline_tests))
+
 (executable
  (name test_qcheck)
  (modules test_qcheck)

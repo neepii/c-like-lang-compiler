@@ -330,6 +330,9 @@ let rec generate_code_rec tac =
      tac ^  generate_code_rec t
 
 let generate_code tac_list =
-  ".section .data\n.text\n.global _start\n_start:\n"
+  ".global _start\n_start:\n\n"
   ^
-  generate_code_rec tac_list
+  let code = generate_code_rec tac_list in
+  Hashtbl.reset symbol_table;
+  code
+
