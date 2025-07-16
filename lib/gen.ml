@@ -1,28 +1,21 @@
 (* -*- compile-command: "opam exec -- dune exec compiler"; -*- *)
 open Parse
 
-
-
 type ir_arg = Register of int
             | Immediate of int
             | Symbol of string
             | EffectiveAddress of int * int
 
 type ir_instr = Move of ir_arg * ir_arg
-              | Call
               | ArithInstr of op * ir_arg * ir_arg * ir_arg
               | Neg of ir_arg * ir_arg
               | BranchJump of bool_op * int * ir_arg * ir_arg
+              | Syscall of int * ir_arg
               | Jump of int
               | Label of int
               | None
 
 type tac_list = ir_instr list
-
-type symbol = {
-    num: int;
-    is_spilled: bool
-}
 
 let riscv64_reg_list = [|
     "zero";
@@ -91,9 +84,10 @@ let branch_instr (sign: bool_op) (operand1: ir_arg) (operand2: ir_arg) (label: i
 let arith_instr op (arg1: ir_arg) (arg2: ir_arg) (arg3: ir_arg) =
   ArithInstr (op, arg1, arg2, arg3)
 
-let call_instr = Call
 let none_instr = None
 
+let syscall_instr call_number first_arg= 
+  Syscall (call_number, first_arg)
 
 let negate_bool_op bool_op =
   match bool_op with
@@ -112,15 +106,20 @@ let fold_bop arg1 arg2 op =
   | Div -> arg1 / arg2
   | Rem -> arg1 mod arg2 (*TODO: test if this is actually a remainder *)
 
+let reg_list_pop rlist =
+  if rlist = [] then 
+    raise (Failure "No register found")
+  else
+    (Register (List.hd rlist), List.tl rlist)
+
 let rec eval_expr expr (rlist: literal list) =
   match expr with
   | Constant x ->
-     let new_reg = List.hd rlist in
-     let rlist = List.tl rlist in
-     let move = move_instr (Immediate x) (Register new_reg) in
-     ([move], rlist, Register new_reg)
+     let new_reg, rlist = reg_list_pop rlist in
+     let move = move_instr (Immediate x) new_reg in
+     ([move], rlist, new_reg)
   | Variable x ->
-     let reg, _ = Hashtbl.find symbol_table x in
+     let reg = Hashtbl.find symbol_table x in
      ([none_instr] , rlist, reg)
   | Bop (x, y, z) -> (
 
@@ -130,30 +129,30 @@ let rec eval_expr expr (rlist: literal list) =
      (* match (arg_x, arg_z) with *)
      (* | (Immediate x, Immediate z) -> ([], rlist, Immediate (fold_bop x z y)) *)
      (* | _ -> *)
-     let new_arg, rlist = (Register (List.hd rlist), List.tl rlist) in
-     let instruction = arith_instr y new_arg arg_x arg_z in
+     let new_reg, rlist = reg_list_pop rlist in
+     let instruction = arith_instr y new_reg arg_x arg_z in
      let tac_list = List.concat [tac_x; tac_z; [instruction]] in
-     (tac_list, rlist, new_arg)
+     (tac_list, rlist, new_reg)
   )
   | Negation x -> (
      match x with
      | Constant x -> 
-        let new_reg = List.hd rlist in
-        let rlist = List.tl rlist in
-        let move = move_instr (Immediate (-x)) (Register new_reg) in
-        ([move], rlist, Register new_reg)
+        let new_reg, rlist = reg_list_pop rlist in
+        let move = move_instr (Immediate (-x)) new_reg in
+        ([move], rlist,new_reg)
      | _ -> (
         let tac, rlist, arg = eval_expr x rlist in
-        let new_arg = List.hd rlist in
-        let rlist = List.tl rlist in
+        let new_reg, rlist = reg_list_pop rlist in
         match arg with
         | Register _ ->
-           let negation = neg_instr arg (Register new_arg) in
+           let negation = neg_instr arg new_reg in
            let tac_list = List.concat [tac; [negation]] in
-           (tac_list, rlist, Register new_arg)
+           (tac_list, rlist, new_reg)
         | _-> failwith "Unimplemented negation for nonregister"
   ))
   | _ -> failwith "Unimplemented in create_instr_for_expr"
+
+
 
 let rec create_tac_list ast rlist =
   match ast with
@@ -162,23 +161,21 @@ let rec create_tac_list ast rlist =
     match h with
     | Assignment (x, y) ->
        if Hashtbl.find_opt symbol_table x = None then
-         let reg = List.hd rlist in
-         let rlist = List.tl rlist in
+         let new_reg, rlist = reg_list_pop rlist in
          let tac_list, rlist, arg = eval_expr y rlist in
-         let move = move_instr arg (Register reg) in
-         Hashtbl.add symbol_table x (Register reg, false);
+         let move = move_instr arg new_reg in
+         Hashtbl.add symbol_table x new_reg;
          List.concat [tac_list ; [move] ; create_tac_list t rlist] (* list.concat is slow, make your concat specifically for tac's*)
        else
-         let reg, _ = Hashtbl.find symbol_table x in
+         let reg = Hashtbl.find symbol_table x in
          let tac_list, rlist, arg = eval_expr y rlist in
          let move = move_instr arg reg in
-         Hashtbl.add symbol_table x (reg, false);
+         Hashtbl.add symbol_table x reg;
          List.concat [tac_list ; [move] ; create_tac_list t rlist]
     | ReturnStatement x ->
        let tac_list, rlist, arg = eval_expr x rlist in
-       let first_move = move_instr arg (Register 10) in
-       let second_move = move_instr (Immediate 94) (Register 16) in
-       List.concat [tac_list ;  [first_move] ; [second_move] ; [call_instr] ; create_tac_list t rlist]
+       let syscall = syscall_instr 94 arg in
+       List.concat [tac_list ;  [syscall] ; create_tac_list t rlist]
     | WhileStatement (x, y)  -> (
       let start_label = label_instr label_counter in
       let end_label = label_instr label_counter in
@@ -327,12 +324,15 @@ let rec generate_code_rec tac =
        match h with
        | Move (source, destination) ->
           construct_move_operator source destination
-       | Call ->
-          "  ecall\n"
        | ArithInstr (op,destination, first_arg, second_arg) ->
           construct_arith_operator op destination first_arg second_arg
        | BranchJump (bool_op, num_label, operand1, operand2) ->
           construct_branchjump_operator bool_op operand1 operand2 (string_of_label num_label)
+       | Syscall (num, arg1) ->
+          let arg1_string = string_of_ir_arg arg1 in
+          string_of_instruction "addi" ["a0"; arg1_string; "zero"] ^
+          string_of_instruction "li" ["a0"; string_of_int num] ^
+          "  ecall\n"
        | Jump dest ->
           string_of_instruction "j" [string_of_label dest]
        | Neg (source, destination) ->
