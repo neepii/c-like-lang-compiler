@@ -2,21 +2,20 @@
 open Parse
 
 
-type op_code = Move
-             | Call
-             | ArithInstr of op
-             | Neg
-             | BranchJump of bool_op * int
-             | Jump of int
-             | Label of int
-             | None
 
 type ir_arg = Register of int
             | Immediate of int
             | Symbol of string
             | EffectiveAddress of int * int
 
-type ir_instr = op_code * ir_arg list
+type ir_instr = Move of ir_arg * ir_arg
+              | Call
+              | ArithInstr of op * ir_arg * ir_arg * ir_arg
+              | Neg of ir_arg * ir_arg
+              | BranchJump of bool_op * int * ir_arg * ir_arg
+              | Jump of int
+              | Label of int
+              | None
 
 type tac_list = ir_instr list
 
@@ -62,37 +61,39 @@ let riscv64_reg_list = [|
 
 let symbol_table = Hashtbl.create 16
 
+
+
 let move_instr (source: ir_arg) (destination: ir_arg) =
-  (Move, [source; destination])
+  Move (source, destination)
 
 let neg_instr (source: ir_arg) (destination: ir_arg) =
-  (Neg, [source; destination])
+  Neg (source, destination)
 
 let label_counter = ref 0
 
 let label_instr counter =
   counter := (!counter) + 1;
-  (Label !counter, [])
+  Label !counter
 
 let get_label_num label =
-  let label_num, _ = label in
-  match label_num with
-  | Label x -> x
-  | _ -> raise (Failure "Can't create jump tac")
+  match label with
+  | Label num -> num
+  | _ -> raise (Failure "Illegal state in get_label_num")
 
 let jump_instr label =
   let num = get_label_num label in
-  (Jump num, [])
+  Jump num
 
 let branch_instr (sign: bool_op) (operand1: ir_arg) (operand2: ir_arg) (label: ir_instr) =
   let num = get_label_num label in
-  (BranchJump (sign, num), [operand1; operand2])
+  BranchJump (sign, num, operand1,operand2)
 
 let arith_instr op (arg1: ir_arg) (arg2: ir_arg) (arg3: ir_arg) =
-  (ArithInstr op, [arg1; arg2; arg3])
+  ArithInstr (op, arg1, arg2, arg3)
 
-let call_instr =
-  (Call, [])
+let call_instr = Call
+let none_instr = None
+
 
 let negate_bool_op bool_op =
   match bool_op with
@@ -120,18 +121,19 @@ let rec eval_expr expr (rlist: literal list) =
      ([move], rlist, Register new_reg)
   | Variable x ->
      let reg, _ = Hashtbl.find symbol_table x in
-     ([(None, [])] , rlist, reg)
+     ([none_instr] , rlist, reg)
   | Bop (x, y, z) -> (
-    (*rewrite please*)
+
      let tac_x, rlist, arg_x = eval_expr x rlist in
      let tac_z, rlist, arg_z = eval_expr z rlist in
-     match (arg_x, arg_z) with
-     | (Immediate x, Immediate z) -> ([], rlist, Immediate (fold_bop x z y))
-     | _ ->
-        let new_arg, rlist = (Register (List.hd rlist), List.tl rlist) in
-        let instruction = arith_instr y new_arg arg_x arg_z in
-        let tac_list = List.concat [tac_x; tac_z; [instruction]] in
-        (tac_list, rlist, new_arg)
+     (*rewrite please*)
+     (* match (arg_x, arg_z) with *)
+     (* | (Immediate x, Immediate z) -> ([], rlist, Immediate (fold_bop x z y)) *)
+     (* | _ -> *)
+     let new_arg, rlist = (Register (List.hd rlist), List.tl rlist) in
+     let instruction = arith_instr y new_arg arg_x arg_z in
+     let tac_list = List.concat [tac_x; tac_z; [instruction]] in
+     (tac_list, rlist, new_arg)
   )
   | Negation x -> (
      match x with
@@ -321,36 +323,22 @@ let rec generate_code_rec tac =
   match tac with
   | [] -> ""
   | h :: t ->
-     let op_code, args = h in
      let tac =
-       match op_code with
-       | Move ->
-          assert(List.length args = 2);
-          let source = List.nth args 0 in
-          let destination = List.nth args 1 in
+       match h with
+       | Move (source, destination) ->
           construct_move_operator source destination
        | Call ->
           "  ecall\n"
-       | ArithInstr op ->
-          assert(List.length args = 3);
-          let destination = List.nth args 0 in
-          let first_arg = List.nth args 1 in
-          let second_arg = List.nth args 2 in
+       | ArithInstr (op,destination, first_arg, second_arg) ->
           construct_arith_operator op destination first_arg second_arg
-       | BranchJump (bool_op, num_label) ->
-          assert(List.length args = 2);
-          let operand1 = List.nth args 0 in
-          let operand2 = List.nth args 1 in
+       | BranchJump (bool_op, num_label, operand1, operand2) ->
           construct_branchjump_operator bool_op operand1 operand2 (string_of_label num_label)
        | Jump dest ->
           string_of_instruction "j" [string_of_label dest]
-       | Neg ->
-          assert(List.length args = 2);
-          let source = List.nth args 0 in
-          let destination = List.nth args 1 in
-          let first = string_of_ir_arg source in
-          let second = string_of_ir_arg destination in
-          string_of_instruction "neg" [first; second]
+       | Neg (source, destination) ->
+          let first_string = string_of_ir_arg source in
+          let second_string = string_of_ir_arg destination in
+          string_of_instruction "neg" [first_string; second_string]
        | Label num ->
           string_of_label num ^ ":\n"
        | None -> ""
