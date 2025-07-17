@@ -21,9 +21,6 @@ type ir_instr = Move of ir_arg * ir_arg
               | Label of int
               | None
 
-(* maximum is 18 on riscv64 *)
-let num_of_registers_avail = 18
-
 let label_counter = ref 0
 
 let max_symb_addr_counter = ref 0
@@ -431,65 +428,65 @@ let construct_branchjump_operator bool_op operand1 operand2 label =
     | (Symbol _, _) -> failwith "Uimplemented in construct_generic_operator: Symbol"
     | _ -> failwith "Uimplemented in construct_generic_operator"
 
-let rec ir_to_gen_arg ir_arg =
+let rec ir_to_gen_arg ir_arg num =
   match ir_arg with
   | SymbAddr x -> 
-     if x < num_of_registers_avail then 
+     if x < num then 
        Register (x + 10) 
      else 
        let offset = 8 *(x - num_of_registers_avail) in
        EffectiveAddress (offset, Register 2)
   | Immediate x -> Immediate x
   | Symbol x -> Symbol x
-  | EffectiveAddress (x,y) -> EffectiveAddress (x, ir_to_gen_arg y)
+  | EffectiveAddress (x,y) -> EffectiveAddress (x, ir_to_gen_arg y num)
 
-let rec generate_code_rec tac =
+let rec generate_code_rec tac regs_num =
   match tac with
   | [] -> ""
   | h :: t ->
      let tac =
        match h with
        | Move (source, destination) ->
-          let arg1 = ir_to_gen_arg source in
-          let arg2 = ir_to_gen_arg destination in
+          let arg1 = ir_to_gen_arg source regs_num in
+          let arg2 = ir_to_gen_arg destination regs_num in
           construct_move_operator arg1 arg2
        | ArithInstr (op, ir_destination, ir_operand1, ir_operand2) ->
-          let gen_operand1 = ir_to_gen_arg ir_operand1 in
-          let gen_operand2 = ir_to_gen_arg ir_operand2 in
-          let gen_destination = ir_to_gen_arg ir_destination in
+          let gen_operand1 = ir_to_gen_arg ir_operand1 regs_num in
+          let gen_operand2 = ir_to_gen_arg ir_operand2 regs_num in
+          let gen_destination = ir_to_gen_arg ir_destination regs_num in
           construct_arith_operator op gen_destination gen_operand1 gen_operand2
        | BranchJump (bool_op, num_label, ir_operand1, ir_operand2) ->
-          let gen_operand1 = ir_to_gen_arg ir_operand1 in
-          let gen_operand2 = ir_to_gen_arg ir_operand2 in
+          let gen_operand1 = ir_to_gen_arg ir_operand1 regs_num in
+          let gen_operand2 = ir_to_gen_arg ir_operand2 regs_num in
           construct_branchjump_operator bool_op gen_operand1 gen_operand2 num_label
        | Syscall (num, arg1) ->
-          let gen_arg = ir_to_gen_arg arg1 in
+          let gen_arg = ir_to_gen_arg arg1 regs_num in
           construct_move_operator gen_arg (Register 10)
           ^ construct_move_operator (Immediate num) (Register 16)
           ^ "  ecall\n"
        | Jump dest ->
           string_of_instruction "j" [string_of_label dest]
        | Neg (source, destination) ->
-          let arg1 = ir_to_gen_arg source in
-          let arg2 = ir_to_gen_arg destination in
+          let arg1 = ir_to_gen_arg source regs_num in
+          let arg2 = ir_to_gen_arg destination regs_num in
           construct_neg_operator arg1 arg2
        | Label num ->
           string_of_label num ^ ":\n"
        | None -> ""
        (* | _ -> failwith "Unimplemented in generate_code_rec" *)
      in
-     tac ^  generate_code_rec t
+     tac ^  generate_code_rec t regs_num
 
-let generate_code_frame tac_list =
-  let additional_space = !max_symb_addr_counter - num_of_registers_avail in
+let generate_code_frame tac_list regs_num =
+  let additional_space = !max_symb_addr_counter - regs_num in
   if additional_space > 0 then
     string_of_instruction "addi" ["sp"; "sp"; string_of_int (-8 * additional_space)]
   else "";
-  ^ generate_code_rec tac_list
+  ^ generate_code_rec tac_list regs_num
 
-let generate_code tac_list =
+let generate_code tac_list regs_num =
   ".global _start\n_start:\n\n"
   ^
-  let code = generate_code_frame tac_list in
+  let code = generate_code_frame tac_list regs_num in
   Hashtbl.reset symbol_table;
   code
