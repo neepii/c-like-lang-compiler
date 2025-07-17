@@ -9,7 +9,7 @@ let () =
     let text = In_channel.input_all ic in
     let tokens = tokenize_text text in
     let ast = parse tokens in
-    let dag = create_dag ast in
+    let dag = create_frame ast in
     let output = generate_code dag in
     let oc = open_out "/tmp/X0101011.s" in
     output_string oc output;
