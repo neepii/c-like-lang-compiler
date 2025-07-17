@@ -6,13 +6,6 @@
  (inline_tests))
 
 (library
- (name test_gen)
- (modules test_gen)
- (libraries base stdio compiler)
- (preprocess (pps ppx_expect ))
- (inline_tests))
-
-(library
  (name test_output)
  (modules test_output)
  (libraries base stdio compiler unix)

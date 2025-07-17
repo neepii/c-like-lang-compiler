@@ -22,7 +22,7 @@ type ir_instr = Move of ir_arg * ir_arg
               | None
 
 (* maximum is 18 on riscv64 *)
-let num_of_registers_avail = 0
+let num_of_registers_avail = 18
 
 let label_counter = ref 0
 
@@ -173,18 +173,18 @@ let rec create_tac_list ast sym_num =
     | Assignment (x, y) ->
        if Hashtbl.find_opt symbol_table x = None then
          let symb_addr, sym_num = give_symb_addr sym_num in
-         let tac_list, sym_num, arg = eval_expr y sym_num in
+         let tac_list, _, arg = eval_expr y sym_num in
          let move = move_instr arg symb_addr in
          Hashtbl.add symbol_table x symb_addr;
          List.concat [tac_list ; [move] ; create_tac_list t sym_num] (* list.concat is slow, make your concat specifically for tac's*)
        else
          let reg = Hashtbl.find symbol_table x in
-         let tac_list, sym_num, arg = eval_expr y sym_num in
+         let tac_list, _, arg = eval_expr y sym_num in
          let move = move_instr arg reg in
          Hashtbl.add symbol_table x reg;
          List.concat [tac_list ; [move] ; create_tac_list t sym_num]
     | ReturnStatement x ->
-       let tac_list, sym_num, arg = eval_expr x sym_num in
+       let tac_list, _, arg = eval_expr x sym_num in
        let syscall = syscall_instr 94 arg in
        List.concat [tac_list ;  [syscall] ; create_tac_list t sym_num]
     | WhileStatement (x, y)  -> (
@@ -192,8 +192,8 @@ let rec create_tac_list ast sym_num =
       let end_label = label_instr label_counter in
        match x with
        | BoolBop (a, sign, b) ->
-          let tac_list_1, sym_num, expr1 = eval_expr a sym_num in
-          let tac_list_2, sym_num, expr2 = eval_expr b sym_num in
+          let tac_list_1, _, expr1 = eval_expr a sym_num in
+          let tac_list_2, _, expr2 = eval_expr b sym_num in
           let branch = branch_instr (negate_bool_op sign) expr1 expr2 end_label in
           let jump = jump_instr start_label in
           let body = create_tac_list y sym_num in
@@ -204,8 +204,8 @@ let rec create_tac_list ast sym_num =
        let skip_then_branch_label = label_instr label_counter in
        (match x with
          | BoolBop (a, sign, b) ->
-          let tac_list_1, sym_num, expr1 = eval_expr a sym_num in
-          let tac_list_2, sym_num, expr2 = eval_expr b sym_num in
+          let tac_list_1, _, expr1 = eval_expr a sym_num in
+          let tac_list_2, _, expr2 = eval_expr b sym_num in
           let branch = branch_instr (negate_bool_op sign) expr1 expr2 skip_then_branch_label in
           let then_body = create_tac_list y sym_num in
           if z = [] then
