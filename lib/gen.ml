@@ -253,8 +253,7 @@ let construct_three_arg_operator dst op1 op2 make_instr =
   match dst with
   | Register _ -> make_instr dst_string first second
   | EffectiveAddress _ ->
-    string_of_instruction "ld" ["t0"; dst_string] 
-    ^ make_instr dst_string first second
+    make_instr dst_string first second
     ^ string_of_instruction "sd" ["t0"; dst_string]
   | _ -> failwith "Unimpl add to nonregister"
 
@@ -271,7 +270,7 @@ let construct_move_operator operand1 operand2 =
 
   | (EffectiveAddress _, Register _) -> string_of_instruction "ld" [second;first]
   | (EffectiveAddress _, Symbol _) -> failwith "Unimplemented in eff_addr -> symb"
-  | (EffectiveAddress _, Immediate _) -> failwith "Unimplemented in eff_addr -> imm"
+  | (EffectiveAddress _, Immediate _) -> raise (Failure "trying to move effective address -> imm")
   | (EffectiveAddress _, EffectiveAddress _) ->
         string_of_instruction "ld" ["t2"; first]
         ^ string_of_instruction "sd" ["t2"; second]
@@ -287,21 +286,20 @@ let construct_add_operator dest operand1 operand2 =
      | (Register _ , Immediate _) -> string_of_instruction "addi" [x;first;second]
      | (Immediate _, Register _) -> string_of_instruction "addi" [x;second;first]
      | (Register _, Register _) -> string_of_instruction "add" [x;first;second]
-     | (Immediate _ , Immediate _) -> raise (Failure "Illegal state: sub reg, imm, imm")
+     | (Immediate num1 , Immediate num2) -> string_of_instruction "li" [x; string_of_int (num1 + num2)]
+
      | (EffectiveAddress _, Register _) -> 
         string_of_instruction "ld" ["t1"; first] 
-        ^ string_of_instruction "addi" [x;second;first]
-        ^ string_of_instruction "sd" ["t1"; first] 
+        ^ string_of_instruction "add" [x;second;first]
      | (Register _, EffectiveAddress _) ->
         string_of_instruction "ld" ["t1"; second] 
-        ^ string_of_instruction "addi" [x;first;second]
-        ^ string_of_instruction "sd" ["t1"; second] 
-     | (EffectiveAddress _, EffectiveAddress _) -> 
-        string_of_instruction "ld" ["t1"; second] 
-        ^ string_of_instruction "ld" ["t2"; first] 
-        ^ string_of_instruction "addi" [x;first;second]
-        ^ string_of_instruction "sd" ["t1"; second] 
-        ^ string_of_instruction "sd" ["t2"; first] 
+        ^ string_of_instruction "add" [x;first;second]
+     | (EffectiveAddress _, EffectiveAddress _) ->
+        string_of_instruction "ld" ["t1"; first]  
+        ^ string_of_instruction "ld" ["t2"; second] 
+        ^ string_of_instruction "add" ["t0";"t1"; "t2"]
+        ^ string_of_instruction "sd" ["t0"; x] 
+
      | (Symbol _, _) -> raise (Failure "Cant add with symbol")
      | _ -> failwith "Uimplemented in construct_add_operator"
   in
@@ -313,8 +311,22 @@ let construct_sub_operator dest operand1 operand2 =
     | (Register _ , Immediate _) -> string_of_instruction "addi" [x;first; "-" ^ second]
     | (Immediate _, Register _) -> string_of_instruction "addi" [x;second; "-" ^ first]
     | (Register _, Register _) -> string_of_instruction "sub" [x;first;second]
+    | (Immediate num1, Immediate num2) -> string_of_instruction "li" [x; string_of_int (num1 - num2)]
+
+    | (EffectiveAddress _, Register _) -> 
+       string_of_instruction "ld" ["t1"; first] 
+       ^ string_of_instruction "sub" [x;second;first]
+    | (Register _, EffectiveAddress _) ->
+       string_of_instruction "ld" ["t1"; second] 
+       ^ string_of_instruction "sub" [x;first;second]
+    | (EffectiveAddress _, EffectiveAddress _) -> 
+       string_of_instruction "ld" ["t1"; first] 
+       ^ string_of_instruction "ld" ["t2"; second] 
+       ^ string_of_instruction "sub" ["t0";"t1"; "t2"]
+       ^ string_of_instruction "sd" ["t0"; x] 
+
     | (Symbol _, _) -> raise (Failure "Cant sub with symbol")
-    | (Immediate _ , Immediate _) -> raise (Failure "Illegal state: sub reg, imm, imm")
+
     | _ -> failwith "Uimplemented in construct_sub_operator"
   in
   construct_three_arg_operator dest operand1 operand2 make_instr
@@ -325,21 +337,20 @@ let construct_generic_operator string dest operand1 operand2 =
     | (Register _, Register _) -> string_of_instruction string [x;first;second]
     | (Register _ , Immediate _) -> string_of_instruction string [x;first;second]
     | (Immediate _, Register _) -> string_of_instruction string [x;second;first]
-    | (Immediate _ , Immediate _) -> raise (Failure "Illegal state: sub reg, imm, imm")
+    | (Immediate _ , Immediate _) -> raise (Failure "Illegal state in construct_generic_operator")
+
     | (EffectiveAddress _, Register _) -> 
        string_of_instruction "ld" ["t1"; first] 
        ^ string_of_instruction string [x;second;first]
-       ^ string_of_instruction "sd" ["t1"; first] 
     | (Register _, EffectiveAddress _) ->
        string_of_instruction "ld" ["t1"; second] 
        ^ string_of_instruction string [x;first;second]
-       ^ string_of_instruction "sd" ["t1"; second] 
     | (EffectiveAddress _, EffectiveAddress _) -> 
-       string_of_instruction "ld" ["t1"; second] 
-       ^ string_of_instruction "ld" ["t2"; first] 
-       ^ string_of_instruction string [x;first;second]
-       ^ string_of_instruction "sd" ["t1"; second] 
-       ^ string_of_instruction "sd" ["t2"; first] 
+       string_of_instruction "ld" ["t1"; first] 
+       ^ string_of_instruction "ld" ["t2"; second] 
+       ^ string_of_instruction string ["t0";"t1"; "t2"]
+       ^ string_of_instruction "sd" ["t0"; x] 
+
     | (Symbol _, _) -> failwith "Uimplemented in construct_generic_operator: Symbol"
     | _ -> failwith "Uimplemented in construct_generic_operator"
   in
@@ -353,7 +364,34 @@ let construct_arith_operator op dest operand1 operand2 =
   | Div -> construct_generic_operator "div" dest operand1 operand2
   | Rem -> construct_generic_operator "rem" dest operand1 operand2
 
+let construct_neg_operator operand1 operand2 =
+  let source = get_asm_operand operand1 in
+  let destination = get_asm_operand operand2 in
+  match (operand1, operand2) with 
+    | (Register _, Register _) -> string_of_instruction "neg" [destination; source]
+    | (Register _ , Immediate _) -> raise (Failure "trying to negate imm")
+    | (Immediate _, Register _) -> 
+       string_of_instruction "li" ["t0"; source]
+       ^ string_of_instruction "neg" [destination; "t0"]
+    | (Immediate _ , Immediate _) -> raise (Failure "Illegal state in construct_generic_operator")
+
+    | (EffectiveAddress _, Register _) -> 
+       string_of_instruction "ld" ["t0"; source] 
+       ^ string_of_instruction "neg" [destination; "t0"]
+    | (Register _, EffectiveAddress _) ->
+       string_of_instruction "neg" ["t0"; source]
+       ^ string_of_instruction "sd" ["t0"; destination]
+    | (EffectiveAddress _, EffectiveAddress _) -> 
+       string_of_instruction "ld" ["t0"; source] 
+       ^ string_of_instruction "neg" ["t1"; "t0"]
+       ^ string_of_instruction "sd" ["t1"; destination]
+
+    | (Symbol _, _) -> failwith "Uimplemented in construct_generic_operator: Symbol"
+    | _ -> failwith "Uimplemented in construct_generic_operator"    
+  
+
 let construct_branchjump_operator bool_op operand1 operand2 label =
+  let label = string_of_label label in
   let op_string =
     match bool_op with
     | GreaterEqual -> "bge"
@@ -365,7 +403,32 @@ let construct_branchjump_operator bool_op operand1 operand2 label =
   in
   let first = get_asm_operand operand1 in
   let second = get_asm_operand operand2 in
-  string_of_instruction op_string [first;second;label]
+  match (operand1, operand2) with
+    | (Register _, Register _) -> string_of_instruction op_string [first;second;label]
+    | (Register _ , Immediate _) -> 
+       string_of_instruction "li" ["t0";second]
+       ^ string_of_instruction op_string [first;"t0"]
+    | (Immediate _, Register _) -> 
+       string_of_instruction "li" ["t0";first]
+       ^ string_of_instruction op_string ["t0"; second]
+    | (Immediate _ , Immediate _) -> 
+       string_of_instruction "li" ["t0";first]
+       ^ string_of_instruction "li" ["t1";second]
+       ^ string_of_instruction op_string ["t0"; "t1"]
+
+    | (EffectiveAddress _, Register _) -> 
+       string_of_instruction "ld" ["t0"; first]
+       ^ string_of_instruction op_string ["t0"; second; label]
+    | (Register _, EffectiveAddress _) ->
+       string_of_instruction "ld" ["t0"; second] 
+       ^ string_of_instruction op_string [first; "t0"; label]
+    | (EffectiveAddress _, EffectiveAddress _) -> 
+       string_of_instruction "ld" ["t1"; second] 
+       ^ string_of_instruction "ld" ["t2"; first] 
+       ^ string_of_instruction op_string ["t1"; "t2"; label]
+
+    | (Symbol _, _) -> failwith "Uimplemented in construct_generic_operator: Symbol"
+    | _ -> failwith "Uimplemented in construct_generic_operator"
 
 let rec ir_to_gen_arg ir_arg =
   match ir_arg with
@@ -397,7 +460,7 @@ let rec generate_code_rec tac =
        | BranchJump (bool_op, num_label, ir_operand1, ir_operand2) ->
           let gen_operand1 = ir_to_gen_arg ir_operand1 in
           let gen_operand2 = ir_to_gen_arg ir_operand2 in
-          construct_branchjump_operator bool_op gen_operand1 gen_operand2 (string_of_label num_label)
+          construct_branchjump_operator bool_op gen_operand1 gen_operand2 num_label
        | Syscall (num, arg1) ->
           let gen_arg = ir_to_gen_arg arg1 in
           construct_move_operator gen_arg (Register 10)
@@ -406,9 +469,9 @@ let rec generate_code_rec tac =
        | Jump dest ->
           string_of_instruction "j" [string_of_label dest]
        | Neg (source, destination) ->
-          let first_string = get_asm_operand (ir_to_gen_arg source) in
-          let second_string = get_asm_operand (ir_to_gen_arg destination) in
-          string_of_instruction "neg" [first_string; second_string]
+          let arg1 = ir_to_gen_arg source in
+          let arg2 = ir_to_gen_arg destination in
+          construct_neg_operator arg1 arg2
        | Label num ->
           string_of_label num ^ ":\n"
        | None -> ""
@@ -417,7 +480,7 @@ let rec generate_code_rec tac =
      tac ^  generate_code_rec t
 
 let generate_code_frame tac_list =
-  let additional_space = !max_symb_addr_counter - max_regs_avail + 1 in
+  let additional_space = !max_symb_addr_counter - max_regs_avail in
   if additional_space > 0 then
     string_of_instruction "addi" ["sp"; "sp"; string_of_int (-8 * additional_space)]
   else "";

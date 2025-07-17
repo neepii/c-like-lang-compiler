@@ -117,7 +117,7 @@ let get_sign str =
   | "-" -> Sub
   | "*" -> Mul
   | "/" -> Div
-  | "%" -> Div
+  | "%" -> Rem
   | _ -> raise (Failure "Can't parse arithmetic operator")
 
 let get_string_bool_op str =
