@@ -21,7 +21,7 @@ type ir_instr = Move of ir_arg * ir_arg
               | Label of int
               | None
 
-let max_regs_avail = 18
+let max_regs_avail = 0
 
 let label_counter = ref 0
 
@@ -266,15 +266,15 @@ let construct_move_operator operand1 operand2 =
   | (Register _, Register _) -> string_of_instruction "add" [second; first; "zero"]
   | (Symbol _, _ ) ->  string_of_instruction "la" [second; first]
   | (Register _, EffectiveAddress _) -> string_of_instruction "sd" [second;first]
-  | (EffectiveAddress _,  Register _) -> string_of_instruction "ld" [second;first]
+  | (Immediate _, Register _) -> string_of_instruction "li" [second;first]
+  | (Immediate _, EffectiveAddress _) -> string_of_instruction "li" ["t0"; first] ^ string_of_instruction "sd" ["t0"; second]
+
+  | (EffectiveAddress _, Register _) -> string_of_instruction "ld" [second;first]
   | (EffectiveAddress _, Symbol _) -> failwith "Unimplemented in eff_addr -> symb"
   | (EffectiveAddress _, Immediate _) -> failwith "Unimplemented in eff_addr -> imm"
   | (EffectiveAddress _, EffectiveAddress _) ->
-        string_of_instruction "ld" ["t2"; second] 
-        ^ string_of_instruction "sd" ["t2";first]
-        ^ string_of_instruction "sd" ["t2"; second] 
-  | (Immediate _, Register _) -> string_of_instruction "li" [second;first]
-  | (Immediate _, EffectiveAddress _) -> string_of_instruction "li" ["t0"; first] ^ string_of_instruction "sd" ["t0"; second]
+        string_of_instruction "ld" ["t2"; first]
+        ^ string_of_instruction "sd" ["t2"; second]
 
   | (Register _, Immediate _) -> raise (Failure "trying to move imm -> imm")
   | (Register _, Symbol _) -> failwith "Unimpl reg -> sym"
@@ -417,7 +417,7 @@ let rec generate_code_rec tac =
      tac ^  generate_code_rec t
 
 let generate_code_frame tac_list =
-  let additional_space = !max_symb_addr_counter - max_regs_avail in
+  let additional_space = !max_symb_addr_counter - max_regs_avail + 1 in
   if additional_space > 0 then
     string_of_instruction "addi" ["sp"; "sp"; string_of_int (-8 * additional_space)]
   else "";
