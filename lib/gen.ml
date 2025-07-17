@@ -21,7 +21,8 @@ type ir_instr = Move of ir_arg * ir_arg
               | Label of int
               | None
 
-let max_regs_avail = 0
+(* maximum is 18 on riscv64 *)
+let num_of_registers_avail = 0
 
 let label_counter = ref 0
 
@@ -423,8 +424,8 @@ let construct_branchjump_operator bool_op operand1 operand2 label =
        string_of_instruction "ld" ["t0"; second] 
        ^ string_of_instruction op_string [first; "t0"; label]
     | (EffectiveAddress _, EffectiveAddress _) -> 
-       string_of_instruction "ld" ["t1"; second] 
-       ^ string_of_instruction "ld" ["t2"; first] 
+       string_of_instruction "ld" ["t1"; first] 
+       ^ string_of_instruction "ld" ["t2"; second] 
        ^ string_of_instruction op_string ["t1"; "t2"; label]
 
     | (Symbol _, _) -> failwith "Uimplemented in construct_generic_operator: Symbol"
@@ -433,10 +434,10 @@ let construct_branchjump_operator bool_op operand1 operand2 label =
 let rec ir_to_gen_arg ir_arg =
   match ir_arg with
   | SymbAddr x -> 
-     if x < max_regs_avail then 
+     if x < num_of_registers_avail then 
        Register (x + 10) 
      else 
-       let offset = 8 *(x - max_regs_avail) in
+       let offset = 8 *(x - num_of_registers_avail) in
        EffectiveAddress (offset, Register 2)
   | Immediate x -> Immediate x
   | Symbol x -> Symbol x
@@ -480,7 +481,7 @@ let rec generate_code_rec tac =
      tac ^  generate_code_rec t
 
 let generate_code_frame tac_list =
-  let additional_space = !max_symb_addr_counter - max_regs_avail in
+  let additional_space = !max_symb_addr_counter - num_of_registers_avail in
   if additional_space > 0 then
     string_of_instruction "addi" ["sp"; "sp"; string_of_int (-8 * additional_space)]
   else "";

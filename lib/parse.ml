@@ -59,12 +59,12 @@ let token_type_key_value = [
     "while", WhileKeyword;
     "else", ElseKeyword;
     "return", ReturnKeyword;
+    "[!=]=", EqualityOperator;
     "=", AssignmentSymbol;
     "[a-zA-Z][a-zA-z0-9]*", Identifier;
     "[+-]", FirstOperator;
     "[*/%]", SecondOperator;
     "[<>]", RelationalOperator;
-    "[!=][=]]", EqualityOperator;
     "(", LeftParenthesis;
     ")", RightParenthesis;
     "{", LeftCurly;
