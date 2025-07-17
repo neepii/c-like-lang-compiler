@@ -266,60 +266,66 @@ let parse (token_list: (string * token_type) list) =
   let ast, tail = parse_stmt token_list in
   if tail = [] then ast else raise (Failure "Parser didn't reached the end")
 
-let rec print_expr ast =
+let rec string_of_expr ast =
   match ast with
   | BoolBop (x, y, z) ->
-     print_string "(";
-     print_expr x;
-     let sign = get_string_bool_op y in
-     print_string sign;
-     print_expr z;
-     print_string ")"
+     "("
+     ^ string_of_expr x
+     ^ get_string_bool_op y
+     ^ string_of_expr z
+     ^ ")"
   | Bop (x, y, z) ->
-     print_string "(";
-     print_expr x;
-     let sign = get_string_sign y in
-     print_string sign;
-     print_expr z;
-     print_string ")"
-  | Constant x -> print_string ("(" ^ string_of_int x ^ ")")
+     "("
+     ^ string_of_expr x
+     ^ get_string_sign y
+     ^ string_of_expr z
+     ^ ")"
+  | Constant x -> "(" ^ string_of_int x ^ ")"
   | Negation x ->
-     print_string "(-";
-     print_expr x;
-     print_string ")";
-  | Variable x -> print_string ("(" ^ x ^ ")")
+     "(-"
+     ^ string_of_expr x
+     ^  ")"
+  | Variable x -> "(" ^ x ^ ")"
 
-let rec print_stmt ast_list =
-  List.iter (fun ast ->
-      match ast with
+let rec string_of_stmt ast_list =
+  match ast_list with
+  | [] -> ""
+  | h :: t -> 
+     let string = 
+      match h with
       | ReturnStatement x ->
-         print_string "return ";
-         print_expr x;
-         print_string " ; ";
+         "return "
+         ^ string_of_expr x
+         ^ " ; "
       | Assignment (x, y) ->
-         print_string ("(" ^ x ^ ") = ");
-         print_expr y;
-         print_string " ; ";
+         "(" ^ x ^ ") = "
+         ^ string_of_expr y
+         ^  " ; "
       | WhileStatement (x, y) ->
-         print_string "while (";
-         print_expr x;
-         print_string ") { ";
-         print_stmt y;
-         print_string "}";
+          "while ("
+         ^ string_of_expr x
+         ^ ") { "
+         ^ string_of_stmt y
+         ^ "}"
       | IfStatement (x, y, z) ->
-         print_string "if (";
-         print_expr x;
-         print_string ") { ";
-         print_stmt y;
-         print_string "}";
-         if z != [] then (
-           print_string " else {";
-           print_stmt z;
-           print_string "}";
-         )
+         "if ("
+         ^ string_of_expr x
+         ^  ") { "
+         ^ string_of_stmt y
+         ^  "}"
+         ^ if z != [] then (
+            " else {"
+              ^ string_of_stmt z
+              ^ "}"
+         ) else ""
       | EndStatement ->
-         print_string "\n";
-    ) ast_list
+          "\n"
+     in
+     string ^ string_of_stmt t
+
+let print_expr ast = 
+  print_endline (string_of_expr ast)
 
 let print_ast ast_list =
-  print_stmt ast_list;
+  let string = string_of_stmt ast_list in
+  print_endline string;

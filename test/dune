@@ -13,6 +13,7 @@
  (inline_tests))
 
 (executable
+ (public_name test_qcheck)
  (name test_qcheck)
  (modules test_qcheck)
- (libraries qcheck-core qcheck))
+ (libraries qcheck-core qcheck compiler))

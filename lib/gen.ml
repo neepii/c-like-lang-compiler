@@ -434,7 +434,7 @@ let rec ir_to_gen_arg ir_arg num =
      if x < num then 
        Register (x + 10) 
      else 
-       let offset = 8 *(x - num_of_registers_avail) in
+       let offset = 8 *(x - num) in
        EffectiveAddress (offset, Register 2)
   | Immediate x -> Immediate x
   | Symbol x -> Symbol x
