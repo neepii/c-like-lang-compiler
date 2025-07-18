@@ -12,6 +12,7 @@ type token_type = IntLiteral
                 | IfKeyword
                 | ElseKeyword
                 | WhileKeyword
+                | FunctionKeyword
                 | AssignmentSymbol
                 | Identifier
                 | Punctuator
@@ -36,9 +37,10 @@ type bool_op = GreaterEqual
              | Equal
              | NotEqual
 
-type expr = Variable of string
+type expr = Variable of ident
           | Constant of literal
           | Negation of expr
+          | Function of ident * expr list
           | Bop of expr * op * expr
           | BoolBop of expr * bool_op * expr
 
@@ -46,10 +48,10 @@ type expr = Variable of string
 type stmt = Assignment of ident * expr
           | IfStatement of expr * stmt list * stmt list
           | WhileStatement of expr * stmt list
+          | FunctionInitialization of ident * expr list * stmt list
           | ReturnStatement of expr
+          | ExpressionStatement of expr
           | EndStatement
-
-type program = stmt list
 
 let token_type_key_value = [
     "[0-9]+", IntLiteral;
@@ -59,9 +61,10 @@ let token_type_key_value = [
     "while", WhileKeyword;
     "else", ElseKeyword;
     "return", ReturnKeyword;
+    "function", FunctionKeyword;
     "[!=]=", EqualityOperator;
     "=", AssignmentSymbol;
-    "[a-zA-Z][a-zA-z0-9]*", Identifier;
+    "[a-zA-Z][a-zA-z0-9_]*", Identifier;
     "[+-]", FirstOperator;
     "[*/%]", SecondOperator;
     "[<>]", RelationalOperator;
@@ -99,7 +102,8 @@ let parse_variable token =
 let parse_match (ttype: token_type) token_list =
   match token_list with
     | [] -> raise (Failure "Can't match anything with empty list")
-    | h :: t -> if snd h = ttype then t else raise (Failure ("Syntax error: match error on token " ^ (fst h)))
+    | h :: t -> 
+       if snd h = ttype then t else raise (Failure ("Syntax error: match error on token " ^ (fst h)))
 
 let get_bool_op str =
   match str with
@@ -214,20 +218,34 @@ let rec parse_expr token_list =
             (sum, rem)
 
 let rec parse_stmt (token_list: (string * token_type) list) =
+
   let stmt, tail =
     match token_list with
     | [] -> raise (Failure "No statements ahead")
     | h :: tail ->
        match snd h with
+       | Identifier ->
+          if snd (List.hd tail) = LeftParenthesis then
+            let tail = parse_match LeftParenthesis tail in
+            let tail = parse_match RightParenthesis tail in
+            let tail = parse_match Punctuator tail in
+            (ExpressionStatement (Function (fst h, [])), tail)
+          else
+            let tail = parse_match AssignmentSymbol tail in
+            let expression, tail = parse_expr tail in
+            let tail = parse_match Punctuator tail in
+            (Assignment ((fst h), expression), tail)
        | ReturnKeyword ->
           let expression, tail = parse_expr tail in
           let tail = parse_match Punctuator tail in
           (ReturnStatement expression, tail)
-       | Identifier ->
-          let tail = parse_match AssignmentSymbol tail in
-          let expression, tail = parse_expr tail in
-          let tail = parse_match Punctuator tail in
-          (Assignment ((fst h), expression), tail)
+       | FunctionKeyword ->
+          let tail = parse_match LeftParenthesis tail in
+          let tail = parse_match RightParenthesis tail in
+          let tail = parse_match LeftCurly tail in
+          let stmts, tail = parse_stmt tail in
+          let tail = parse_match RightCurly tail in
+          (FunctionInitialization  (fst h, [], stmts), tail)
        | WhileKeyword ->
           let tail = parse_match LeftParenthesis tail in
           let expression, tail = parse_expr tail in
@@ -281,6 +299,7 @@ let rec string_of_expr ast =
      ^ string_of_expr z
      ^ ")"
   | Constant x -> "(" ^ string_of_int x ^ ")"
+  | Function (x, y) -> x ^ "(" ^ String.concat ", " (List.map string_of_expr y) ^ ")"
   | Negation x ->
      "(-"
      ^ string_of_expr x
@@ -301,6 +320,12 @@ let rec string_of_stmt ast_list =
          "(" ^ x ^ ") = "
          ^ string_of_expr y
          ^  " ; "
+      | ExpressionStatement x ->
+         string_of_expr x ^ " ;\n"
+      | FunctionInitialization (x, y, z) ->
+         x
+         ^ String.concat ", " (List.map string_of_expr y)
+         ^ string_of_stmt z
       | WhileStatement (x, y) ->
           "while ("
          ^ string_of_expr x

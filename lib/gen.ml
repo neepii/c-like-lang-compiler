@@ -15,10 +15,10 @@ type gen_arg = Register of int
 type ir_instr = Move of ir_arg * ir_arg
               | ArithInstr of op * ir_arg * ir_arg * ir_arg
               | Neg of ir_arg * ir_arg
-              | BranchJump of bool_op * int * ir_arg * ir_arg
+              | BranchJump of bool_op * string * ir_arg * ir_arg
               | Syscall of int * ir_arg
-              | Jump of int
-              | Label of int
+              | Jump of string
+              | Label of string
               | None
 
 let label_counter = ref 0
@@ -73,9 +73,9 @@ let neg_instr (source: ir_arg) (destination: ir_arg) =
 let check_max_symb (curr_value: int) (counter: int ref) =
   counter := if curr_value > !counter then curr_value else !counter
 
-let label_instr counter =
+let create_num_label counter =
   counter := (!counter) + 1;
-  Label !counter
+  ("L" ^ string_of_int !counter)
 
 let get_label_num label =
   match label with
@@ -83,14 +83,12 @@ let get_label_num label =
   | _ -> raise (Failure "Illegal state in get_label_num")
 
 let jump_instr label =
-  let num = get_label_num label in
-  Jump num
+  Jump label
 
-let branch_instr (sign: bool_op) (operand1: ir_arg) (operand2: ir_arg) (label: ir_instr) =
-  let num = get_label_num label in
-  BranchJump (sign, num, operand1,operand2)
+let branch_instr sign operand1 operand2 label =
+  BranchJump (sign, label, operand1,operand2)
 
-let arith_instr op (arg1: ir_arg) (arg2: ir_arg) (arg3: ir_arg) =
+let arith_instr op arg1 arg2 arg3 =
   ArithInstr (op, arg1, arg2, arg3)
 
 let none_instr = None
@@ -131,32 +129,32 @@ let rec eval_expr expr sym_num =
      | SymbAddr _-> ([] , sym_num, symb_addr)
      | _ -> failwith "unimpl in evaluation of variable")
   | Bop (x, y, z) -> (
-     let tac_x, sym_num, symb_x = eval_expr x sym_num in
-     let tac_z, sym_num, symb_z = eval_expr z sym_num in
-     (*rewrite please*)
-     (* match (arg_x, arg_z) with *)
-     (* | (Immediate x, Immediate z) -> ([], rlist, Immediate (fold_bop x z y)) *)
-     (* | _ -> *)
-     let symb_addr, sym_num = give_symb_addr sym_num in
-     let instruction = arith_instr y symb_addr symb_x symb_z in
-     let tac_list = List.concat [tac_x; tac_z; [instruction]] in
-     (tac_list, sym_num, symb_addr)
+    let tac_x, sym_num, symb_x = eval_expr x sym_num in
+    let tac_z, sym_num, symb_z = eval_expr z sym_num in
+    (*rewrite please*)
+    (* match (arg_x, arg_z) with *)
+    (* | (Immediate x, Immediate z) -> ([], rlist, Immediate (fold_bop x z y)) *)
+    (* | _ -> *)
+    let symb_addr, sym_num = give_symb_addr sym_num in
+    let instruction = arith_instr y symb_addr symb_x symb_z in
+    let tac_list = List.concat [tac_x; tac_z; [instruction]] in
+    (tac_list, sym_num, symb_addr)
   )
   | Negation x -> (
-     match x with
-     | Constant x -> 
-        let symb_addr, sym_num = give_symb_addr sym_num in
-        let move = move_instr (Immediate (-x)) symb_addr in
-        ([move], sym_num, symb_addr)
-     | _ -> (
-        let tac, sym_num, arg = eval_expr x sym_num in
-        let symb_addr, sym_num = give_symb_addr sym_num in
-        match symb_addr with
-        | SymbAddr _ ->
-           let negation = neg_instr arg symb_addr in
-           let tac_list = List.concat [tac; [negation]] in
-           (tac_list, sym_num, symb_addr)
-        | _-> failwith "Unimplemented negation for nonregister"
+    match x with
+    | Constant x -> 
+       let symb_addr, sym_num = give_symb_addr sym_num in
+       let move = move_instr (Immediate (-x)) symb_addr in
+       ([move], sym_num, symb_addr)
+    | _ -> (
+      let tac, sym_num, arg = eval_expr x sym_num in
+      let symb_addr, sym_num = give_symb_addr sym_num in
+      match symb_addr with
+      | SymbAddr _ ->
+         let negation = neg_instr arg symb_addr in
+         let tac_list = List.concat [tac; [negation]] in
+         (tac_list, sym_num, symb_addr)
+      | _-> failwith "Unimplemented negation for nonregister"
   ))
   | _ -> failwith "Unimplemented in create_instr_for_expr"
 
@@ -173,7 +171,8 @@ let rec create_tac_list ast sym_num =
          let tac_list, _, arg = eval_expr y sym_num in
          let move = move_instr arg symb_addr in
          Hashtbl.add symbol_table x symb_addr;
-         List.concat [tac_list ; [move] ; create_tac_list t sym_num] (* list.concat is slow, make your concat specifically for tac's*)
+         List.concat [tac_list ; [move] ; create_tac_list t sym_num] 
+         (* list.concat is slow, make your concat specifically for tac's*)
        else
          let reg = Hashtbl.find symbol_table x in
          let tac_list, _, arg = eval_expr y sym_num in
@@ -184,9 +183,15 @@ let rec create_tac_list ast sym_num =
        let tac_list, _, arg = eval_expr x sym_num in
        let syscall = syscall_instr 94 arg in
        List.concat [tac_list ;  [syscall] ; create_tac_list t sym_num]
+    | ExpressionStatement x ->
+       (match x with
+       | Function (name, _) ->
+          let jump = jump_instr name in
+          jump :: create_tac_list t sym_num
+       | _ -> failwith "Unimplemented in ExpressionStatement")
     | WhileStatement (x, y)  -> (
-      let start_label = label_instr label_counter in
-      let end_label = label_instr label_counter in
+      let start_label = create_num_label label_counter in
+      let end_label = create_num_label label_counter in
        match x with
        | BoolBop (a, sign, b) ->
           let tac_list_1, _, expr1 = eval_expr a sym_num in
@@ -194,11 +199,11 @@ let rec create_tac_list ast sym_num =
           let branch = branch_instr (negate_bool_op sign) expr1 expr2 end_label in
           let jump = jump_instr start_label in
           let body = create_tac_list y sym_num in
-          (* this create list will not return sym_num, because of new frame, i need to create tests to make sure it actually works *)
-          List.concat [[start_label] ; tac_list_1 ; tac_list_2 ; [branch] ; body ; [jump; end_label] ; create_tac_list t sym_num]
+          List.concat [[Label start_label] ; tac_list_1 ; tac_list_2 ;
+                       [branch] ; body ; [jump; Label end_label] ; create_tac_list t sym_num]
        | _ -> failwith "Unimplemented: While statement without relation")
     | IfStatement (x, y, z) ->
-       let skip_then_branch_label = label_instr label_counter in
+       let skip_then_branch_label = create_num_label label_counter in
        (match x with
          | BoolBop (a, sign, b) ->
           let tac_list_1, _, expr1 = eval_expr a sym_num in
@@ -206,15 +211,18 @@ let rec create_tac_list ast sym_num =
           let branch = branch_instr (negate_bool_op sign) expr1 expr2 skip_then_branch_label in
           let then_body = create_tac_list y sym_num in
           if z = [] then
-            List.concat [tac_list_1 ; tac_list_2 ; [branch] ; then_body ; [skip_then_branch_label] ; create_tac_list t sym_num]
+            List.concat [tac_list_1 ; tac_list_2 ; [branch] ;
+                         then_body ; [Label skip_then_branch_label] ; create_tac_list t sym_num]
           else
-            let end_label = label_instr label_counter in
+            let end_label = create_num_label label_counter in
             let jump = jump_instr end_label in
             let else_body = create_tac_list z sym_num in
-            List.concat [tac_list_1 ; tac_list_2 ; [branch] ; then_body ; [jump] ; [skip_then_branch_label] ; else_body ; [end_label] ; create_tac_list t sym_num]
+            List.concat [tac_list_1 ; tac_list_2 ; [branch] ; then_body ; 
+                         [jump] ; [Label skip_then_branch_label] ; else_body ; 
+                         [Label end_label] ; create_tac_list t sym_num]
          | _ -> failwith "Unimplemented: If statement without relation")
     | EndStatement -> []
-    (* | _ -> raise (Failure "Can't create node for DAG") *)
+    | _ -> raise (Failure "Can't create node for DAG")
 
 let create_frame ast =
   create_tac_list ast 0
@@ -264,7 +272,8 @@ let construct_move_operator operand1 operand2 =
   | (Symbol _, _ ) ->  string_of_instruction "la" [second; first]
   | (Register _, EffectiveAddress _) -> string_of_instruction "sd" [second;first]
   | (Immediate _, Register _) -> string_of_instruction "li" [second;first]
-  | (Immediate _, EffectiveAddress _) -> string_of_instruction "li" ["t0"; first] ^ string_of_instruction "sd" ["t0"; second]
+  | (Immediate _, EffectiveAddress _) -> 
+     string_of_instruction "li" ["t0"; first] ^ string_of_instruction "sd" ["t0"; second]
 
   | (EffectiveAddress _, Register _) -> string_of_instruction "ld" [second;first]
   | (EffectiveAddress _, Symbol _) -> failwith "Unimplemented in eff_addr -> symb"
@@ -389,7 +398,6 @@ let construct_neg_operator operand1 operand2 =
   
 
 let construct_branchjump_operator bool_op operand1 operand2 label =
-  let label = string_of_label label in
   let op_string =
     match bool_op with
     | GreaterEqual -> "bge"
@@ -424,7 +432,6 @@ let construct_branchjump_operator bool_op operand1 operand2 label =
        string_of_instruction "ld" ["t1"; first] 
        ^ string_of_instruction "ld" ["t2"; second] 
        ^ string_of_instruction op_string ["t1"; "t2"; label]
-
     | (Symbol _, _) -> failwith "Uimplemented in construct_generic_operator: Symbol"
     | _ -> failwith "Uimplemented in construct_generic_operator"
 
@@ -465,13 +472,13 @@ let rec generate_code_rec tac regs_num =
           ^ construct_move_operator (Immediate num) (Register 16)
           ^ "  ecall\n"
        | Jump dest ->
-          string_of_instruction "j" [string_of_label dest]
+          string_of_instruction "call" [dest]
        | Neg (source, destination) ->
           let arg1 = ir_to_gen_arg source regs_num in
           let arg2 = ir_to_gen_arg destination regs_num in
           construct_neg_operator arg1 arg2
-       | Label num ->
-          string_of_label num ^ ":\n"
+       | Label ident ->
+          ident ^ ":\n"
        | None -> ""
        (* | _ -> failwith "Unimplemented in generate_code_rec" *)
      in
@@ -485,7 +492,7 @@ let generate_code_frame tac_list regs_num =
   ^ generate_code_rec tac_list regs_num
 
 let generate_code tac_list regs_num =
-  ".global _start\n_start:\n\n"
+  ".extern print_hw\n.global _start\n_start:\n\n"
   ^
   let code = generate_code_frame tac_list regs_num in
   Hashtbl.reset symbol_table;
