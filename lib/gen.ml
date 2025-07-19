@@ -17,6 +17,7 @@ type ir_instr = Move of ir_arg * ir_arg
               | Neg of ir_arg * ir_arg
               | BranchJump of bool_op * string * ir_arg * ir_arg
               | Syscall of int * ir_arg
+              | CallFunction of ident * ir_arg * ident list
               | Jump of string
               | Label of string
               | None
@@ -63,12 +64,14 @@ let riscv64_reg_list = [|
 let symbol_table = Hashtbl.create 16
 
 
-
-let move_instr (source: ir_arg) (destination: ir_arg) =
-  Move (source, destination)
-
-let neg_instr (source: ir_arg) (destination: ir_arg) =
-  Neg (source, destination)
+let func_instr name destination args = CallFunction (name, destination, args)
+let move_instr source destination = Move (source, destination)
+let neg_instr source destination = Neg (source, destination)
+let jump_instr label = Jump label
+let branch_instr sign operand1 operand2 label = BranchJump (sign, label, operand1,operand2)
+let arith_instr op arg1 arg2 arg3 = ArithInstr (op, arg1, arg2, arg3)
+let none_instr = None
+let syscall_instr call_number first_arg = Syscall (call_number, first_arg)
 
 let check_max_symb (curr_value: int) (counter: int ref) =
   counter := if curr_value > !counter then curr_value else !counter
@@ -82,19 +85,6 @@ let get_label_num label =
   | Label num -> num
   | _ -> raise (Failure "Illegal state in get_label_num")
 
-let jump_instr label =
-  Jump label
-
-let branch_instr sign operand1 operand2 label =
-  BranchJump (sign, label, operand1,operand2)
-
-let arith_instr op arg1 arg2 arg3 =
-  ArithInstr (op, arg1, arg2, arg3)
-
-let none_instr = None
-
-let syscall_instr call_number first_arg= 
-  Syscall (call_number, first_arg)
 
 let negate_bool_op bool_op =
   match bool_op with
@@ -116,6 +106,19 @@ let fold_bop arg1 arg2 op =
 let give_symb_addr avail_sym_num =
   check_max_symb avail_sym_num max_symb_addr_counter;
   (SymbAddr avail_sym_num , avail_sym_num + 1)
+
+let rec eval_arguments cse =
+  match cse with
+  | CommaSeparatedExpression (expr, cse) ->
+     (match expr with
+     | Variable x -> x :: eval_arguments cse
+     | _ -> raise (Failure "Illegal state: Expression is not comma separated")
+     )
+  | Variable x -> [x]
+  | Constant x -> [string_of_int x]
+  | Epsilon -> []
+  | _ -> raise (Failure "Can't recognize arguments")
+  
 
 let rec eval_expr expr sym_num =
   match expr with
@@ -158,8 +161,6 @@ let rec eval_expr expr sym_num =
   ))
   | _ -> failwith "Unimplemented in create_instr_for_expr"
 
-
-
 let rec create_tac_list ast sym_num =
   match ast with
   | [] -> []
@@ -185,9 +186,11 @@ let rec create_tac_list ast sym_num =
        List.concat [tac_list ;  [syscall] ; create_tac_list t sym_num]
     | ExpressionStatement x ->
        (match x with
-       | Function (name, _) ->
-          let jump = jump_instr name in
-          jump :: create_tac_list t sym_num
+       | Function (name, args) ->
+          let symb_addr, sym_num = give_symb_addr sym_num in
+          let arguments = eval_arguments args in
+          let ir_instr = func_instr name symb_addr arguments in
+          ir_instr :: create_tac_list t sym_num
        | _ -> failwith "Unimplemented in ExpressionStatement")
     | WhileStatement (x, y)  -> (
       let start_label = create_num_label label_counter in
@@ -472,13 +475,22 @@ let rec generate_code_rec tac regs_num =
           ^ construct_move_operator (Immediate num) (Register 16)
           ^ "  ecall\n"
        | Jump dest ->
-          string_of_instruction "call" [dest]
+          string_of_instruction "j" [dest]
        | Neg (source, destination) ->
           let arg1 = ir_to_gen_arg source regs_num in
           let arg2 = ir_to_gen_arg destination regs_num in
           construct_neg_operator arg1 arg2
        | Label ident ->
           ident ^ ":\n"
+       | CallFunction (name, _, args) ->
+          let symb_args = List.map (fun id -> Hashtbl.find symbol_table id) args in
+          let reg_string = List.map (fun symb -> get_asm_operand (ir_to_gen_arg symb regs_num)) symb_args in
+          let length = List.length args in
+          let allocate = if length = 0 then "" else string_of_instruction "addi" ["sp"; "sp"; string_of_int (-8 * length)] in
+          let push = List.mapi (fun index reg -> string_of_instruction "sd" [reg; string_of_int (-8 * index) ^ "(sp)"]) reg_string in (* temp *)
+          let jump = string_of_instruction "call" [name] in
+          let pop = List.mapi (fun index reg -> string_of_instruction "ld" [reg; string_of_int (-8 * index) ^ "(sp)"]) reg_string in
+          String.concat "" (List.concat [[allocate] ; push ; [jump] ; pop])
        | None -> ""
        (* | _ -> failwith "Unimplemented in generate_code_rec" *)
      in
@@ -492,7 +504,7 @@ let generate_code_frame tac_list regs_num =
   ^ generate_code_rec tac_list regs_num
 
 let generate_code tac_list regs_num =
-  ".extern print_hw\n.global _start\n_start:\n\n"
+  ".extern print_hw\n.extern print_int\n\n.global _start\n_start:\n\n"
   ^
   let code = generate_code_frame tac_list regs_num in
   Hashtbl.reset symbol_table;

@@ -19,6 +19,7 @@ type token_type = IntLiteral
                 | Whitespace
                 | EOF
                 | Epsilon
+                | Comma
 
 type literal = int
 
@@ -40,15 +41,16 @@ type bool_op = GreaterEqual
 type expr = Variable of ident
           | Constant of literal
           | Negation of expr
-          | Function of ident * expr list
+          | Function of ident * expr
           | Bop of expr * op * expr
           | BoolBop of expr * bool_op * expr
-
+          | CommaSeparatedExpression of expr * expr
+          | Epsilon
 
 type stmt = Assignment of ident * expr
           | IfStatement of expr * stmt list * stmt list
           | WhileStatement of expr * stmt list
-          | FunctionInitialization of ident * expr list * stmt list
+          | FunctionInitialization of ident * expr * stmt list
           | ReturnStatement of expr
           | ExpressionStatement of expr
           | EndStatement
@@ -56,6 +58,7 @@ type stmt = Assignment of ident * expr
 let token_type_key_value = [
     "[0-9]+", IntLiteral;
     "[ \n\t\r\x0b]+", Whitespace;
+    ",", Comma;
     ";", Punctuator;
     "if", IfKeyword;
     "while", WhileKeyword;
@@ -197,28 +200,33 @@ and parse_prod token_list =
           else
             (variable, t)
        | _ ->
-          failwith "unimpl case in parse_prod"
+          (Epsilon, h :: t)
 
 let rec parse_expr token_list =
   match token_list with
     | [] -> raise (Failure "Illegal state in parse_expr")
     | x :: [] -> (fst (parse_sum [x])), []
     | x ->
-          let sum, rem = parse_sum x in
-          if rem = [] then (sum, rem)
-          else if snd (List.hd rem) = RelationalOperator then  (
+       let sum, rem = parse_sum x in
+       if rem = [] then 
+         (sum, rem)
+       else 
+         match snd (List.hd rem) with 
+         | Comma ->
+            let expression, rem_expr = parse_expr (List.tl rem) in
+            (CommaSeparatedExpression (sum, expression), rem_expr)
+         | RelationalOperator -> 
             let operator = get_bool_op (fst (List.hd rem)) in
             let expression, rem_expr = parse_expr (List.tl rem) in
-            (BoolBop (sum, operator, expression), rem_expr))
-          else if snd (List.hd rem) = EqualityOperator then  (
+            (BoolBop (sum, operator, expression), rem_expr)
+         | EqualityOperator ->
             let operator = get_bool_op (fst (List.hd rem)) in
             let expression, rem_expr = parse_expr (List.tl rem) in
-            (BoolBop (sum, operator, expression), rem_expr))
-          else
+            (BoolBop (sum, operator, expression), rem_expr)
+         | _ ->
             (sum, rem)
 
 let rec parse_stmt (token_list: (string * token_type) list) =
-
   let stmt, tail =
     match token_list with
     | [] -> raise (Failure "No statements ahead")
@@ -227,9 +235,10 @@ let rec parse_stmt (token_list: (string * token_type) list) =
        | Identifier ->
           if snd (List.hd tail) = LeftParenthesis then
             let tail = parse_match LeftParenthesis tail in
+            let expression, tail = parse_expr tail in
             let tail = parse_match RightParenthesis tail in
             let tail = parse_match Punctuator tail in
-            (ExpressionStatement (Function (fst h, [])), tail)
+            (ExpressionStatement (Function (fst h, expression)), tail)
           else
             let tail = parse_match AssignmentSymbol tail in
             let expression, tail = parse_expr tail in
@@ -241,11 +250,12 @@ let rec parse_stmt (token_list: (string * token_type) list) =
           (ReturnStatement expression, tail)
        | FunctionKeyword ->
           let tail = parse_match LeftParenthesis tail in
+          let expression, tail = parse_expr tail in
           let tail = parse_match RightParenthesis tail in
           let tail = parse_match LeftCurly tail in
           let stmts, tail = parse_stmt tail in
           let tail = parse_match RightCurly tail in
-          (FunctionInitialization  (fst h, [], stmts), tail)
+          (FunctionInitialization  (fst h, expression, stmts), tail)
        | WhileKeyword ->
           let tail = parse_match LeftParenthesis tail in
           let expression, tail = parse_expr tail in
@@ -299,12 +309,15 @@ let rec string_of_expr ast =
      ^ string_of_expr z
      ^ ")"
   | Constant x -> "(" ^ string_of_int x ^ ")"
-  | Function (x, y) -> x ^ "(" ^ String.concat ", " (List.map string_of_expr y) ^ ")"
+  | Function (x, y) -> x ^ "(" ^ string_of_expr y ^ ")"
+  | CommaSeparatedExpression (x,y) ->
+     string_of_expr x ^ ", " ^ string_of_expr y
   | Negation x ->
      "(-"
      ^ string_of_expr x
      ^  ")"
   | Variable x -> "(" ^ x ^ ")"
+  | Epsilon -> ""
 
 let rec string_of_stmt ast_list =
   match ast_list with
@@ -324,8 +337,11 @@ let rec string_of_stmt ast_list =
          string_of_expr x ^ " ;\n"
       | FunctionInitialization (x, y, z) ->
          x
-         ^ String.concat ", " (List.map string_of_expr y)
-         ^ string_of_stmt z
+         ^ "(" 
+         ^ string_of_expr y 
+         ^ ") {"
+         ^ string_of_stmt z 
+         ^ "}"
       | WhileStatement (x, y) ->
           "while ("
          ^ string_of_expr x
