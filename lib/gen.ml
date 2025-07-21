@@ -157,6 +157,8 @@ let rec eval_cse cse sym_num =
      let tac_list1, _, arg = eval_expr expr sym_num in
      let tac_list2, _, list_of_args = eval_cse cse sym_num in
      (List.concat [tac_list1; tac_list2], sym_num, arg :: list_of_args)
+  | Epsilon ->
+     ([], sym_num, [])
   | _ ->
      let tac_list, _, arg = eval_expr cse sym_num in
      (tac_list, sym_num, [arg])
