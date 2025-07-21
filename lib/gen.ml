@@ -5,19 +5,20 @@ type ir_arg = SymbAddr of int
             | Immediate of int
             | Symbol of string
             | EffectiveAddress of int * ir_arg
+            | None
 
 type gen_arg = Register of int
              | Immediate of int
              | Symbol of string
              | EffectiveAddress of int * gen_arg
-
+             | None
 
 type ir_instr = Move of ir_arg * ir_arg
               | ArithInstr of op * ir_arg * ir_arg * ir_arg
               | Neg of ir_arg * ir_arg
               | BranchJump of bool_op * string * ir_arg * ir_arg
               | Syscall of int * ir_arg
-              | CallFunction of ident * ir_arg * ident list
+              | CallFunction of ident * ir_arg * ir_arg list
               | Jump of string
               | Label of string
               | None
@@ -107,18 +108,6 @@ let give_symb_addr avail_sym_num =
   check_max_symb avail_sym_num max_symb_addr_counter;
   (SymbAddr avail_sym_num , avail_sym_num + 1)
 
-let rec eval_arguments cse =
-  match cse with
-  | CommaSeparatedExpression (expr, cse) ->
-     (match expr with
-     | Variable x -> x :: eval_arguments cse
-     | _ -> raise (Failure "Illegal state: Expression is not comma separated")
-     )
-  | Variable x -> [x]
-  | Constant x -> [string_of_int x]
-  | Epsilon -> []
-  | _ -> raise (Failure "Can't recognize arguments")
-  
 
 let rec eval_expr expr sym_num =
   match expr with
@@ -161,6 +150,17 @@ let rec eval_expr expr sym_num =
   ))
   | _ -> failwith "Unimplemented in create_instr_for_expr"
 
+
+let rec eval_cse cse sym_num =
+  match cse with
+  | CommaSeparatedExpression (expr, cse) ->
+     let tac_list1, _, arg = eval_expr expr sym_num in
+     let tac_list2, _, list_of_args = eval_cse cse sym_num in
+     (List.concat [tac_list1; tac_list2], sym_num, arg :: list_of_args)
+  | _ ->
+     let tac_list, _, arg = eval_expr cse sym_num in
+     (tac_list, sym_num, [arg])
+
 let rec create_tac_list ast sym_num =
   match ast with
   | [] -> []
@@ -187,10 +187,9 @@ let rec create_tac_list ast sym_num =
     | ExpressionStatement x ->
        (match x with
        | Function (name, args) ->
-          let symb_addr, sym_num = give_symb_addr sym_num in
-          let arguments = eval_arguments args in
-          let ir_instr = func_instr name symb_addr arguments in
-          ir_instr :: create_tac_list t sym_num
+          let tac_list, _, list = eval_cse args sym_num in
+          let ir_instr = func_instr name None list in
+          List.concat [tac_list ;  [ir_instr] ; create_tac_list t sym_num]
        | _ -> failwith "Unimplemented in ExpressionStatement")
     | WhileStatement (x, y)  -> (
       let start_label = create_num_label label_counter in
@@ -245,6 +244,7 @@ let get_asm_operand arg =
      | _ -> failwith "Unimplemented in get_asm_operand")
      in
      string_of_int x ^ "(" ^ addr  ^ ")"
+  | _ -> raise (Failure "None in get_asm_operand")
 
 let string_of_instruction operator operand_list =
   match operand_list with
@@ -273,7 +273,7 @@ let construct_move_operator operand1 operand2 =
   match (operand1, operand2) with
   | (Register _, Register _) -> string_of_instruction "add" [second; first; "zero"]
   | (Symbol _, _ ) ->  string_of_instruction "la" [second; first]
-  | (Register _, EffectiveAddress _) -> string_of_instruction "sd" [second;first]
+  | (Register _, EffectiveAddress _) -> string_of_instruction "sd" [first;second]
   | (Immediate _, Register _) -> string_of_instruction "li" [second;first]
   | (Immediate _, EffectiveAddress _) -> 
      string_of_instruction "li" ["t0"; first] ^ string_of_instruction "sd" ["t0"; second]
@@ -289,6 +289,7 @@ let construct_move_operator operand1 operand2 =
   | (Register _, Symbol _) -> failwith "Unimpl reg -> sym"
   | (Immediate _, Symbol _) -> failwith "Unimpl imm -> sym"
   | (Immediate _, Immediate _) -> raise (Failure "trying to move imm -> imm")
+  | _ -> raise (Failure "constructing None")
 
 let construct_add_operator dest operand1 operand2 =
   let make_instr x first second = 
@@ -438,6 +439,8 @@ let construct_branchjump_operator bool_op operand1 operand2 label =
     | (Symbol _, _) -> failwith "Uimplemented in construct_generic_operator: Symbol"
     | _ -> failwith "Uimplemented in construct_generic_operator"
 
+
+
 let rec ir_to_gen_arg ir_arg num =
   match ir_arg with
   | SymbAddr x -> 
@@ -449,6 +452,19 @@ let rec ir_to_gen_arg ir_arg num =
   | Immediate x -> Immediate x
   | Symbol x -> Symbol x
   | EffectiveAddress (x,y) -> EffectiveAddress (x, ir_to_gen_arg y num)
+  | None -> None
+
+let construct_function name args regs_num =
+  let args = List.map (fun ir -> ir_to_gen_arg ir regs_num) args in
+  let length = List.length args in
+  let allocate = if length = 0 then "" else string_of_instruction "addi" ["sp"; "sp"; string_of_int (-8 * length)] in
+  let push = List.mapi (fun index reg -> construct_move_operator reg (EffectiveAddress (index, (Register 2)))) args in (* temp *)  (* string_of_instruction "sd" [reg; string_of_int (8 * index) ^ "(sp)"]*)
+  let move = List.mapi (fun index reg -> construct_move_operator reg (Register (index + 10))) args in (* temp *)
+  let jump = string_of_instruction "call" [name] in
+  let pop = List.mapi (fun index reg -> construct_move_operator (EffectiveAddress (index, (Register 2))) reg) args in (* temp *)  (* string_of_instruction "sd" [reg; string_of_int (8 * index) ^ "(sp)"]*)
+  String.concat "" (List.concat [[allocate] ; push ; move; [jump] ; pop])
+
+
 
 let rec generate_code_rec tac regs_num =
   match tac with
@@ -483,14 +499,7 @@ let rec generate_code_rec tac regs_num =
        | Label ident ->
           ident ^ ":\n"
        | CallFunction (name, _, args) ->
-          let symb_args = List.map (fun id -> Hashtbl.find symbol_table id) args in
-          let reg_string = List.map (fun symb -> get_asm_operand (ir_to_gen_arg symb regs_num)) symb_args in
-          let length = List.length args in
-          let allocate = if length = 0 then "" else string_of_instruction "addi" ["sp"; "sp"; string_of_int (-8 * length)] in
-          let push = List.mapi (fun index reg -> string_of_instruction "sd" [reg; string_of_int (-8 * index) ^ "(sp)"]) reg_string in (* temp *)
-          let jump = string_of_instruction "call" [name] in
-          let pop = List.mapi (fun index reg -> string_of_instruction "ld" [reg; string_of_int (-8 * index) ^ "(sp)"]) reg_string in
-          String.concat "" (List.concat [[allocate] ; push ; [jump] ; pop])
+          construct_function name args regs_num
        | None -> ""
        (* | _ -> failwith "Unimplemented in generate_code_rec" *)
      in
