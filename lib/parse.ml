@@ -9,6 +9,7 @@ type token_type = IntLiteral
                 | LeftCurly
                 | RightCurly
                 | ReturnKeyword
+                | ExternKeyword
                 | IfKeyword
                 | ElseKeyword
                 | WhileKeyword
@@ -46,12 +47,16 @@ type expr = Variable of ident
           | CommaSeparatedExpression of expr * expr
           | Epsilon
 
+type storage = External
+             | NoneType
+
 type stmt = Assignment of ident * expr
           | IfStatement of expr * stmt list * stmt list
           | WhileStatement of expr * stmt list 
           | FunctionInitialization of ident * expr * stmt list
           | ReturnStatement of expr
           | ExpressionStatement of expr
+          | Declaration of storage * ident
           | NoneStatement
           | EndStatement
 
@@ -64,6 +69,7 @@ let token_type_key_value = [
     "while", WhileKeyword;
     "else", ElseKeyword;
     "return", ReturnKeyword;
+    "extern", ExternKeyword;
     "[!=]=", EqualityOperator;
     "=", AssignmentSymbol;
     "[a-zA-Z][a-zA-z0-9_]*", Identifier;
@@ -286,6 +292,14 @@ let rec parse_outer_stmt token_list =
     | [] -> raise (Failure "No statements ahead")
     | h :: t -> 
        match snd h with
+       | ExternKeyword ->
+          (match snd (List.hd t) with
+          | Identifier ->
+             let symbol = fst (List.hd t) in
+             let tail = parse_match Identifier t in
+             let tail = parse_match Punctuator tail in
+             (Declaration (External, symbol), tail)
+          | _ -> raise (Failure "Syntax error: no identifier after extern keyword"))
        | Identifier ->
           let tail = parse_match LeftParenthesis t in
           let expression, tail = parse_expr tail in
@@ -339,6 +353,13 @@ let rec string_of_stmt ast_list =
   | h :: t -> 
      let string = 
       match h with
+      | Declaration (spec, name) ->
+         (match spec with
+         | External -> "extern "
+         | NoneType -> ""
+         )
+         ^ name
+         ^ " ; "
       | ReturnStatement x ->
          "return "
          ^ string_of_expr x

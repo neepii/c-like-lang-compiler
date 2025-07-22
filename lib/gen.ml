@@ -26,6 +26,7 @@ type ir_instr = Move of ir_arg * ir_arg
 let label_counter = ref 0
 
 let max_symb_addr_counter = ref 0
+let extern_symbol_list = ref []
 
 let riscv64_reg_list = [|
     "zero";
@@ -81,11 +82,14 @@ let create_num_label counter =
   counter := (!counter) + 1;
   ("L" ^ string_of_int !counter)
 
+let add_to_ref_ident_list el ref =
+  let list = !ref in
+  ref := el :: list
+
 let get_label_num label =
   match label with
   | Label num -> num
   | _ -> raise (Failure "Illegal state in get_label_num")
-
 
 let negate_bool_op bool_op =
   match bool_op with
@@ -102,12 +106,11 @@ let fold_bop arg1 arg2 op =
   | Add -> arg1 + arg2
   | Mul -> arg1 * arg2
   | Div -> arg1 / arg2
-  | Rem -> arg1 mod arg2 (*TODO: test if this is actually a remainder *)
+  | Rem -> arg1 mod arg2
 
 let give_symb_addr avail_sym_num =
   check_max_symb avail_sym_num max_symb_addr_counter;
   (SymbAddr avail_sym_num , avail_sym_num + 1)
-
 
 let rec eval_expr expr sym_num =
   match expr with
@@ -181,6 +184,12 @@ let rec create_tac_list ast sym_num =
          let move = move_instr arg reg in
          Hashtbl.add symbol_table x reg;
          List.concat [tac_list ; [move] ; create_tac_list t sym_num]
+    | Declaration (spec, symb)->
+       (match spec with
+       | External ->
+          add_to_ref_ident_list symb extern_symbol_list
+       | NoneType -> raise (Failure "Illegal state in create_tac_list: Declaration"));
+       create_tac_list t sym_num
     | ReturnStatement x ->
        let tac_list, _, arg = eval_expr x sym_num in
        let syscall = syscall_instr 94 arg in
@@ -517,9 +526,7 @@ let generate_code_frame tac_list regs_num =
   ^ generate_code_rec tac_list regs_num
 
 let generate_code tac_list regs_num =
-  ".extern print_hw\n.extern print_int\n\n.global _start\n"
-  ^
-  let code = generate_code_frame tac_list regs_num in
-  Hashtbl.reset symbol_table;
-  code
+  String.concat "" (List.map (fun x -> ".extern " ^ x ^ "\n") !extern_symbol_list) 
+  ^ ".global _start\n"
+  ^ generate_code_frame tac_list regs_num 
   ^ "_start:\n  j main\n"
