@@ -47,12 +47,14 @@ type expr = Variable of ident
           | CommaSeparatedExpression of expr * expr
           | Epsilon
 
-type stmt = Assignment of ident * expr
+type stmt =
+          Assignment of ident * expr
           | IfStatement of expr * stmt list * stmt list
-          | WhileStatement of expr * stmt list
+          | WhileStatement of expr * stmt list 
           | FunctionInitialization of ident * expr * stmt list
           | ReturnStatement of expr
           | ExpressionStatement of expr
+          | NoneStatement
           | EndStatement
 
 let token_type_key_value = [
@@ -226,72 +228,79 @@ let rec parse_expr token_list =
          | _ ->
             (sum, rem)
 
-let rec parse_stmt (token_list: (string * token_type) list) =
+let rec parse_stmt token_list = 
+  let head = List.hd token_list in
+  let tail = List.tl token_list in
+  match snd head with
+  | Identifier ->
+     if snd (List.hd tail) = LeftParenthesis then
+       let tail = parse_match LeftParenthesis tail in
+       let expression, tail = parse_expr tail in
+       let tail = parse_match RightParenthesis tail in
+       let tail = parse_match Punctuator tail in
+       (ExpressionStatement (Function (fst head, expression)), tail)
+     else
+       let tail = parse_match AssignmentSymbol tail in
+       let expression, tail = parse_expr tail in
+       let tail = parse_match Punctuator tail in
+       (Assignment ((fst head), expression), tail)
+  | ReturnKeyword ->
+     let expression, tail = parse_expr tail in
+     let tail = parse_match Punctuator tail in
+     (ReturnStatement expression, tail)
+  | FunctionKeyword ->
+     let tail = parse_match LeftParenthesis tail in
+     let expression, tail = parse_expr tail in
+     let tail = parse_match RightParenthesis tail in
+     let tail = parse_match LeftCurly tail in
+     let stmts, tail = parse_stmts tail in
+     let tail = parse_match RightCurly tail in
+     (FunctionInitialization  (fst head, expression, stmts), tail)
+  | WhileKeyword ->
+     let tail = parse_match LeftParenthesis tail in
+     let expression, tail = parse_expr tail in
+     let tail = parse_match RightParenthesis tail in
+     let tail = parse_match LeftCurly tail in
+     let stmts, tail = parse_stmts tail in
+     let tail = parse_match RightCurly tail in
+     (WhileStatement (expression, stmts), tail)
+  | IfKeyword ->
+     let tail = parse_match LeftParenthesis tail in
+     let expression, tail = parse_expr tail in
+     let tail = parse_match RightParenthesis tail in
+     let tail = parse_match LeftCurly tail in
+     let first_stmts, tail = parse_stmts tail in
+     let tail = parse_match RightCurly tail in
+     if tail = [] || snd (List.hd tail) != ElseKeyword then
+       (IfStatement (expression, first_stmts, []), tail)
+     else
+       let tail = parse_match ElseKeyword tail in
+       let tail = parse_match LeftCurly tail in
+       let second_stmts, tail = parse_stmts tail in
+       let tail = parse_match RightCurly tail in
+       (IfStatement (expression, first_stmts, second_stmts), tail)
+  | EOF ->
+     (EndStatement, [])
+  | _ -> failwith "unimplemented case in parse_stmt"
+
+and parse_stmts token_list =
   let stmt, tail =
     match token_list with
     | [] -> raise (Failure "No statements ahead")
-    | h :: tail ->
-       match snd h with
-       | Identifier ->
-          if snd (List.hd tail) = LeftParenthesis then
-            let tail = parse_match LeftParenthesis tail in
-            let expression, tail = parse_expr tail in
-            let tail = parse_match RightParenthesis tail in
-            let tail = parse_match Punctuator tail in
-            (ExpressionStatement (Function (fst h, expression)), tail)
-          else
-            let tail = parse_match AssignmentSymbol tail in
-            let expression, tail = parse_expr tail in
-            let tail = parse_match Punctuator tail in
-            (Assignment ((fst h), expression), tail)
-       | ReturnKeyword ->
-          let expression, tail = parse_expr tail in
-          let tail = parse_match Punctuator tail in
-          (ReturnStatement expression, tail)
-       | FunctionKeyword ->
-          let tail = parse_match LeftParenthesis tail in
-          let expression, tail = parse_expr tail in
-          let tail = parse_match RightParenthesis tail in
-          let tail = parse_match LeftCurly tail in
-          let stmts, tail = parse_stmt tail in
-          let tail = parse_match RightCurly tail in
-          (FunctionInitialization  (fst h, expression, stmts), tail)
-       | WhileKeyword ->
-          let tail = parse_match LeftParenthesis tail in
-          let expression, tail = parse_expr tail in
-          let tail = parse_match RightParenthesis tail in
-          let tail = parse_match LeftCurly tail in
-          let stmts, tail = parse_stmt tail in
-          let tail = parse_match RightCurly tail in
-          (WhileStatement (expression, stmts), tail)
-       | IfKeyword ->
-          let tail = parse_match LeftParenthesis tail in
-          let expression, tail = parse_expr tail in
-          let tail = parse_match RightParenthesis tail in
-          let tail = parse_match LeftCurly tail in
-          let first_stmts, tail = parse_stmt tail in
-          let tail = parse_match RightCurly tail in
-          if tail = [] || snd (List.hd tail) != ElseKeyword then
-            (IfStatement (expression, first_stmts, []), tail)
-          else
-            let tail = parse_match ElseKeyword tail in
-            let tail = parse_match LeftCurly tail in
-            let second_stmts, tail = parse_stmt tail in
-            let tail = parse_match RightCurly tail in
-            (IfStatement (expression, first_stmts, second_stmts), tail)
-       | EOF ->
-          (EndStatement, [])
-       | _ -> failwith "unimplemented case in parse_stmt"
+    | h :: t -> 
+       match h with
+       | _ -> parse_stmt (h :: t)
   in
   if tail = [] || snd (List.hd tail) = RightCurly then
     ([stmt], tail)
   else
-    let stmts, tail = parse_stmt tail in
+    let stmts, tail = parse_stmts tail in
     (stmt :: stmts, tail)
 
 
+
 let parse (token_list: (string * token_type) list) =
-  let ast, tail = parse_stmt token_list in
+  let ast, tail = parse_stmts token_list in
   if tail = [] then ast else raise (Failure "Parser didn't reached the end")
 
 let rec string_of_expr ast =
@@ -340,7 +349,7 @@ let rec string_of_stmt ast_list =
          ^ "(" 
          ^ string_of_expr y 
          ^ ") {"
-         ^ string_of_stmt z 
+         ^ string_of_stmt z
          ^ "}"
       | WhileStatement (x, y) ->
           "while ("
@@ -361,6 +370,8 @@ let rec string_of_stmt ast_list =
          ) else ""
       | EndStatement ->
           "\n"
+      | NoneStatement -> ""
+      (* | Frame x -> failwith "Unimplemented in string_of_stmt" *)
      in
      string ^ string_of_stmt t
 
