@@ -123,14 +123,13 @@ let rec eval_expr expr sym_num =
   | Bop (x, y, z) -> (
     let tac_x, sym_num, symb_x = eval_expr x sym_num in
     let tac_z, sym_num, symb_z = eval_expr z sym_num in
-    (*rewrite please*)
-    (* match (arg_x, arg_z) with *)
-    (* | (Immediate x, Immediate z) -> ([], rlist, Immediate (fold_bop x z y)) *)
+    (* match (symb_x, symb_z) with *)
+    (* | (Immediate x, Immediate z) -> ([], sym_num, Immediate (fold_bop x z y)) *)
     (* | _ -> *)
-    let symb_addr, sym_num = give_symb_addr sym_num in
-    let instruction = arith_instr y symb_addr symb_x symb_z in
-    let tac_list = List.concat [tac_x; tac_z; [instruction]] in
-    (tac_list, sym_num, symb_addr)
+       let symb_addr, sym_num = give_symb_addr sym_num in
+       let instruction = arith_instr y symb_addr symb_x symb_z in
+       let tac_list = List.concat [tac_x; tac_z; [instruction]] in
+       (tac_list, sym_num, symb_addr)
   )
   | Negation x -> (
     match x with
@@ -225,6 +224,9 @@ let rec create_tac_list ast sym_num =
                          [jump] ; [Label skip_then_branch_label] ; else_body ; 
                          [Label end_label] ; create_tac_list t sym_num]
          | _ -> failwith "Unimplemented: If statement without relation")
+    | FunctionInitialization (name, _, stmts) ->
+       let subprog = Label name :: create_tac_list stmts sym_num in
+       List.concat [subprog ; create_tac_list t sym_num]
     | EndStatement -> []
     | _ -> raise (Failure "Can't create node for DAG")
 
@@ -515,8 +517,9 @@ let generate_code_frame tac_list regs_num =
   ^ generate_code_rec tac_list regs_num
 
 let generate_code tac_list regs_num =
-  ".extern print_hw\n.extern print_int\n\n.global _start\n_start:\n\n"
+  ".extern print_hw\n.extern print_int\n\n.global _start\n"
   ^
   let code = generate_code_frame tac_list regs_num in
   Hashtbl.reset symbol_table;
   code
+  ^ "_start:\n  j main\n"

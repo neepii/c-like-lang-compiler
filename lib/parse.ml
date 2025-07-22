@@ -12,7 +12,6 @@ type token_type = IntLiteral
                 | IfKeyword
                 | ElseKeyword
                 | WhileKeyword
-                | FunctionKeyword
                 | AssignmentSymbol
                 | Identifier
                 | Punctuator
@@ -47,8 +46,7 @@ type expr = Variable of ident
           | CommaSeparatedExpression of expr * expr
           | Epsilon
 
-type stmt =
-          Assignment of ident * expr
+type stmt = Assignment of ident * expr
           | IfStatement of expr * stmt list * stmt list
           | WhileStatement of expr * stmt list 
           | FunctionInitialization of ident * expr * stmt list
@@ -66,7 +64,6 @@ let token_type_key_value = [
     "while", WhileKeyword;
     "else", ElseKeyword;
     "return", ReturnKeyword;
-    "function", FunctionKeyword;
     "[!=]=", EqualityOperator;
     "=", AssignmentSymbol;
     "[a-zA-Z][a-zA-z0-9_]*", Identifier;
@@ -248,14 +245,6 @@ let rec parse_stmt token_list =
      let expression, tail = parse_expr tail in
      let tail = parse_match Punctuator tail in
      (ReturnStatement expression, tail)
-  | FunctionKeyword ->
-     let tail = parse_match LeftParenthesis tail in
-     let expression, tail = parse_expr tail in
-     let tail = parse_match RightParenthesis tail in
-     let tail = parse_match LeftCurly tail in
-     let stmts, tail = parse_stmts tail in
-     let tail = parse_match RightCurly tail in
-     (FunctionInitialization  (fst head, expression, stmts), tail)
   | WhileKeyword ->
      let tail = parse_match LeftParenthesis tail in
      let expression, tail = parse_expr tail in
@@ -284,23 +273,39 @@ let rec parse_stmt token_list =
   | _ -> failwith "unimplemented case in parse_stmt"
 
 and parse_stmts token_list =
-  let stmt, tail =
-    match token_list with
-    | [] -> raise (Failure "No statements ahead")
-    | h :: t -> 
-       match h with
-       | _ -> parse_stmt (h :: t)
-  in
+  let stmt, tail = parse_stmt token_list in
   if tail = [] || snd (List.hd tail) = RightCurly then
     ([stmt], tail)
   else
     let stmts, tail = parse_stmts tail in
     (stmt :: stmts, tail)
 
-
+let rec parse_outer_stmt token_list =
+  let stmt, tail =
+    match token_list with
+    | [] -> raise (Failure "No statements ahead")
+    | h :: t -> 
+       match snd h with
+       | Identifier ->
+          let tail = parse_match LeftParenthesis t in
+          let expression, tail = parse_expr tail in
+          let tail = parse_match RightParenthesis tail in
+          let tail = parse_match LeftCurly tail in
+          let stmts, tail = parse_stmts tail in
+          let tail = parse_match RightCurly tail in
+          (FunctionInitialization  (fst h, expression, stmts), tail)
+       | EOF ->
+          (EndStatement, [])
+       | _ -> raise (Failure "Illegal state in parse_outer_stmt")
+  in
+  if tail = [] || snd (List.hd tail) = RightCurly then
+    ([stmt], tail)
+  else
+    let stmts, tail = parse_outer_stmt tail in
+    (stmt :: stmts, tail)  
 
 let parse (token_list: (string * token_type) list) =
-  let ast, tail = parse_stmts token_list in
+  let ast, tail = parse_outer_stmt token_list in
   if tail = [] then ast else raise (Failure "Parser didn't reached the end")
 
 let rec string_of_expr ast =
