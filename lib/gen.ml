@@ -120,27 +120,7 @@ let give_symb_addr avail_sym_num =
   check_max_symb avail_sym_num max_symb_addr_counter;
   (SymbAddr avail_sym_num , avail_sym_num + 1)
 
-let rec cse_to_stype_list cse =
-  match cse with
-  | Epsilon -> []
-  | Variable _ -> [Int64]
-  | CommaSeparatedExpression (expr, cse) ->
-     (match expr with 
-     | Variable _ ->
-        Int64 :: cse_to_stype_list cse
-     | _ -> raise (Failure "Non-variable in expr_to_stype_list"))
-  | _ -> raise (Failure "Argument is not CSE in cse_to_stype_list")
-
-let rec cse_length cse =
-  match cse with
-  | Epsilon -> 0
-  | Variable _ -> 1
-  | CommaSeparatedExpression (_, cse) ->
-     1 + cse_length cse
-  | _ -> raise (Failure "Argument is not CSE in cse_to_stype_list")
-
-
-let rec eval_expr expr sym_num =
+let rec eval_expr_rec expr sym_num =
   match expr with
   | Constant x ->
      let symb_addr, sym_num = give_symb_addr sym_num in
@@ -152,8 +132,8 @@ let rec eval_expr expr sym_num =
      | SymbAddr _-> ([] , sym_num, symb_addr)
      | _ -> failwith "unimpl in evaluation of variable")
   | Bop (x, y, z) -> (
-    let tac_x, sym_num, symb_x = eval_expr x sym_num in
-    let tac_z, sym_num, symb_z = eval_expr z sym_num in
+    let tac_x, sym_num, symb_x = eval_expr_rec x sym_num in
+    let tac_z, sym_num, symb_z = eval_expr_rec z sym_num in
     (* match (symb_x, symb_z) with *)
     (* | (Immediate x, Immediate z) -> ([], sym_num, Immediate (fold_bop x z y)) *)
     (* | _ -> *)
@@ -169,7 +149,7 @@ let rec eval_expr expr sym_num =
        let move = move_instr (Immediate (-x)) symb_addr in
        ([move], sym_num, symb_addr)
     | _ -> (
-      let tac, sym_num, arg = eval_expr x sym_num in
+      let tac, sym_num, arg = eval_expr_rec x sym_num in
       let symb_addr, sym_num = give_symb_addr sym_num in
       match symb_addr with
       | SymbAddr _ ->
@@ -180,18 +160,9 @@ let rec eval_expr expr sym_num =
   ))
   | _ -> failwith "Unimplemented in create_instr_for_expr"
 
-
-let rec eval_cse cse sym_num =
-  match cse with
-  | CommaSeparatedExpression (expr, cse) ->
-     let tac_list1, _, arg = eval_expr expr sym_num in
-     let tac_list2, _, list_of_args = eval_cse cse sym_num in
-     (List.concat [tac_list1; tac_list2], sym_num, arg :: list_of_args)
-  | Epsilon ->
-     ([], sym_num, [])
-  | _ ->
-     let tac_list, _, arg = eval_expr cse sym_num in
-     (tac_list, sym_num, [arg])
+let eval_expr expr sym_num =
+  let tac, _, ir = eval_expr_rec expr sym_num in
+  (tac, ir)
 
 let rec create_tac_list ast sym_num =
   match ast with
@@ -201,19 +172,19 @@ let rec create_tac_list ast sym_num =
     | Assignment (x, y) ->
        if Hashtbl.find_opt symbol_table x = None then
          let symb_addr, sym_num = give_symb_addr sym_num in
-         let tac_list, _, arg = eval_expr y sym_num in
+         let tac_list, arg = eval_expr y sym_num in
          let move = move_instr arg symb_addr in
          Hashtbl.add symbol_table x (symb_addr, Int64);
          List.concat [tac_list ; [move] ; create_tac_list t sym_num] 
          (* list.concat is slow, make your concat specifically for tac's*)
        else
          let reg, stype = Hashtbl.find symbol_table x in
-         let tac_list, _, arg = eval_expr y sym_num in
+         let tac_list, arg = eval_expr y sym_num in
          let move = move_instr arg reg in
          Hashtbl.add symbol_table x (reg, stype);
          List.concat [tac_list ; [move] ; create_tac_list t sym_num]
     | ReturnStatement x ->
-       let tac_list, _, arg = eval_expr x sym_num in
+       let tac_list, arg = eval_expr x sym_num in
        let syscall = syscall_instr 94 arg in
        List.concat [tac_list ;  [syscall] ; create_tac_list t sym_num]
     | ExpressionStatement x ->
@@ -222,14 +193,19 @@ let rec create_tac_list ast sym_num =
           let _, stype = Hashtbl.find symbol_table name in
           (match stype with
           | Function (_, params) ->
-             if List.length params > cse_length args then
+             if List.length params > List.length args then
                raise (Failure ("Error: too few arguments in " ^ name))
-             else if List.length params < cse_length args then
+             else if List.length params < List.length args then
                raise (Failure ("Error: too many arguments in " ^ name))
-             else
-               let tac_list, _, list = eval_cse args sym_num in
+             else if args != [] then
+               let pair_list = List.map (fun x -> eval_expr x sym_num) args in
+               let tac_list = List.concat (List.map fst pair_list) in
+               let list = List.map snd pair_list in
                let ir_instr = func_instr name None list in
                List.concat [tac_list ;  [ir_instr] ; create_tac_list t sym_num]
+             else
+               let ir_instr = func_instr name None [] in
+               ir_instr :: create_tac_list t sym_num
           | _ -> raise (Failure "Illegal state in create_tac_list: FunctionUsage"))
        | _ -> failwith "Unimplemented in ExpressionStatement")
     | WhileStatement (x, y)  -> (
@@ -237,8 +213,8 @@ let rec create_tac_list ast sym_num =
       let end_label = create_num_label label_counter in
        match x with
        | BoolBop (a, sign, b) ->
-          let tac_list_1, _, expr1 = eval_expr a sym_num in
-          let tac_list_2, _, expr2 = eval_expr b sym_num in
+          let tac_list_1, expr1 = eval_expr a sym_num in
+          let tac_list_2, expr2 = eval_expr b sym_num in
           let branch = branch_instr (negate_bool_op sign) expr1 expr2 end_label in
           let jump = jump_instr start_label in
           let body = create_tac_list y sym_num in
@@ -249,15 +225,16 @@ let rec create_tac_list ast sym_num =
        (match spec with
        | External ->
           add_to_ref_ident_list symb extern_symbol_list;
-          Hashtbl.add symbol_table symb (Symbol symb, Function (External, cse_to_stype_list cse))
+          let type_list = List.map (fun _ -> Int64) cse in
+          Hashtbl.add symbol_table symb (Symbol symb, Function (External, type_list))
        | NoneType -> raise (Failure "Illegal state in create_tac_list: FuncDecl"));
        create_tac_list t sym_num
     | IfStatement (x, y, z) ->
        let skip_then_branch_label = create_num_label label_counter in
        (match x with
          | BoolBop (a, sign, b) ->
-          let tac_list_1, _, expr1 = eval_expr a sym_num in
-          let tac_list_2, _, expr2 = eval_expr b sym_num in
+          let tac_list_1, expr1 = eval_expr a sym_num in
+          let tac_list_2, expr2 = eval_expr b sym_num in
           let branch = branch_instr (negate_bool_op sign) expr1 expr2 skip_then_branch_label in
           let then_body = create_tac_list y sym_num in
           if z = [] then

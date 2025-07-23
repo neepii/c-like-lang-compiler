@@ -41,10 +41,9 @@ type bool_op = GreaterEqual
 type expr = Variable of ident
           | Constant of literal
           | Negation of expr
-          | Function of ident * expr
+          | Function of ident * expr list
           | Bop of expr * op * expr
           | BoolBop of expr * bool_op * expr
-          | CommaSeparatedExpression of expr * expr
           | Epsilon
 
 type storage = External
@@ -53,10 +52,10 @@ type storage = External
 type stmt = Assignment of ident * expr
           | IfStatement of expr * stmt list * stmt list
           | WhileStatement of expr * stmt list 
-          | FuncInit of ident * expr * stmt list
+          | FuncInit of ident * expr list * stmt list
           | ReturnStatement of expr
           | ExpressionStatement of expr
-          | FuncDecl of storage * ident * expr
+          | FuncDecl of storage * ident * expr list
           | NoneStatement
           | EndStatement
 
@@ -207,29 +206,51 @@ and parse_prod token_list =
        | _ ->
           (Epsilon, h :: t)
 
+let head_type (token_list: (ident * token_type) list ) =
+  if token_list != [] then
+    snd (List.hd token_list)
+  else
+    Epsilon
+  
 let rec parse_expr token_list =
   match token_list with
     | [] -> raise (Failure "Illegal state in parse_expr")
     | x :: [] -> (fst (parse_sum [x])), []
     | x ->
-       let sum, rem = parse_sum x in
-       if rem = [] then 
-         (sum, rem)
-       else 
-         match snd (List.hd rem) with 
-         | Comma ->
-            let expression, rem_expr = parse_expr (List.tl rem) in
-            (CommaSeparatedExpression (sum, expression), rem_expr)
+       let sum, tail = parse_sum x in
+         match head_type tail with 
          | RelationalOperator -> 
-            let operator = get_bool_op (fst (List.hd rem)) in
-            let expression, rem_expr = parse_expr (List.tl rem) in
-            (BoolBop (sum, operator, expression), rem_expr)
+            let operator = get_bool_op (fst (List.hd tail)) in
+            let expression, tail = parse_expr (List.tl tail) in
+            (BoolBop (sum, operator, expression), tail)
          | EqualityOperator ->
-            let operator = get_bool_op (fst (List.hd rem)) in
-            let expression, rem_expr = parse_expr (List.tl rem) in
-            (BoolBop (sum, operator, expression), rem_expr)
+            let operator = get_bool_op (fst (List.hd tail)) in
+            let expression, tail = parse_expr (List.tl tail) in
+            (BoolBop (sum, operator, expression), tail)
          | _ ->
-            (sum, rem)
+            (sum, tail)
+
+let rec parse_exprs token_list =
+  match token_list with
+  | [] -> raise (Failure "Illegal state in parse_cse")
+  | x :: [] -> 
+     [fst (parse_expr [x])], []
+  | x ->
+     let expr, tail = parse_expr x in
+         match head_type tail with
+         | Comma ->
+            (expr :: fst (parse_exprs tail), tail)
+         | _ -> ([expr], tail)
+
+let parse_args token_list =
+  let tail = parse_match LeftParenthesis token_list in
+  if head_type tail = RightParenthesis then
+    let tail = parse_match RightParenthesis tail in
+    ([], tail)
+  else
+    let expression, tail = parse_exprs tail in
+    let tail = parse_match RightParenthesis tail in
+    (expression, tail)
 
 let rec parse_stmt token_list = 
   let head = List.hd token_list in
@@ -237,11 +258,9 @@ let rec parse_stmt token_list =
   match snd head with
   | Identifier ->
      if snd (List.hd tail) = LeftParenthesis then
-       let tail = parse_match LeftParenthesis tail in
-       let expression, tail = parse_expr tail in
-       let tail = parse_match RightParenthesis tail in
+       let expr, tail = parse_args tail in
        let tail = parse_match Punctuator tail in
-       (ExpressionStatement (Function (fst head, expression)), tail)
+       (ExpressionStatement (Function (fst head, expr)), tail)
      else
        let tail = parse_match AssignmentSymbol tail in
        let expression, tail = parse_expr tail in
@@ -297,19 +316,15 @@ let rec parse_outer_stmt token_list =
           | Identifier ->
              let symbol = fst (List.hd t) in
              let tail = parse_match Identifier t in
-             if snd (List.hd tail) = LeftParenthesis then
-               let tail = parse_match LeftParenthesis tail in
-               let expr, tail = parse_expr tail in
-               let tail = parse_match RightParenthesis tail in
+             if head_type tail = LeftParenthesis then
+               let expr, tail = parse_args tail in
                let tail = parse_match Punctuator tail in
                (FuncDecl (External, symbol, expr), tail)
              else 
                failwith "Unimplemented: external without params"
           | _ -> raise (Failure "Syntax error: no identifier after extern keyword"))
        | Identifier ->
-          let tail = parse_match LeftParenthesis t in
-          let expression, tail = parse_expr tail in
-          let tail = parse_match RightParenthesis tail in
+          let expression, tail = parse_args t in
           let tail = parse_match LeftCurly tail in
           let stmts, tail = parse_stmts tail in
           let tail = parse_match RightCurly tail in
@@ -343,15 +358,18 @@ let rec string_of_expr ast =
      ^ string_of_expr z
      ^ ")"
   | Constant x -> "(" ^ string_of_int x ^ ")"
-  | Function (x, y) -> x ^ "(" ^ string_of_expr y ^ ")"
-  | CommaSeparatedExpression (x,y) ->
-     string_of_expr x ^ ", " ^ string_of_expr y
+  | Function (x, y) -> 
+     let string = String.concat ", " (List.map string_of_expr y) in
+     x ^ "(" ^ string ^ ")"
   | Negation x ->
      "(-"
      ^ string_of_expr x
      ^  ")"
   | Variable x -> "(" ^ x ^ ")"
   | Epsilon -> ""
+
+let string_of_expr_list expr_list =
+  String.concat ", " (List.map string_of_expr expr_list)
 
 let rec string_of_stmt ast_list =
   match ast_list with
@@ -365,7 +383,7 @@ let rec string_of_stmt ast_list =
          | NoneType -> ""
          )
          ^ name
-         ^ string_of_expr expr
+         ^ string_of_expr_list expr
          ^ " ; "
       | ReturnStatement x ->
          "return "
@@ -380,7 +398,7 @@ let rec string_of_stmt ast_list =
       | FuncInit (x, y, z) ->
          x
          ^ "(" 
-         ^ string_of_expr y 
+         ^ string_of_expr_list y 
          ^ ") {"
          ^ string_of_stmt z
          ^ "}"
