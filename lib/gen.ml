@@ -23,6 +23,14 @@ type ir_instr = Move of ir_arg * ir_arg
               | Label of string
               | None
 
+type symbol_type = Int64
+                 | Function of storage * symbol_type list
+
+type symbol_entry = {
+    ir: ir_arg;
+    stype: symbol_type;
+}
+
 let label_counter = ref 0
 
 let max_symb_addr_counter = ref 0
@@ -112,6 +120,26 @@ let give_symb_addr avail_sym_num =
   check_max_symb avail_sym_num max_symb_addr_counter;
   (SymbAddr avail_sym_num , avail_sym_num + 1)
 
+let rec cse_to_stype_list cse =
+  match cse with
+  | Epsilon -> []
+  | Variable _ -> [Int64]
+  | CommaSeparatedExpression (expr, cse) ->
+     (match expr with 
+     | Variable _ ->
+        Int64 :: cse_to_stype_list cse
+     | _ -> raise (Failure "Non-variable in expr_to_stype_list"))
+  | _ -> raise (Failure "Argument is not CSE in cse_to_stype_list")
+
+let rec cse_length cse =
+  match cse with
+  | Epsilon -> 0
+  | Variable _ -> 1
+  | CommaSeparatedExpression (_, cse) ->
+     1 + cse_length cse
+  | _ -> raise (Failure "Argument is not CSE in cse_to_stype_list")
+
+
 let rec eval_expr expr sym_num =
   match expr with
   | Constant x ->
@@ -119,7 +147,7 @@ let rec eval_expr expr sym_num =
      let move = move_instr (Immediate x) symb_addr in
      ([move], sym_num, symb_addr)
   | Variable x ->
-     let symb_addr = Hashtbl.find symbol_table x in
+     let symb_addr, _ = Hashtbl.find symbol_table x in
      (match symb_addr with
      | SymbAddr _-> ([] , sym_num, symb_addr)
      | _ -> failwith "unimpl in evaluation of variable")
@@ -175,21 +203,15 @@ let rec create_tac_list ast sym_num =
          let symb_addr, sym_num = give_symb_addr sym_num in
          let tac_list, _, arg = eval_expr y sym_num in
          let move = move_instr arg symb_addr in
-         Hashtbl.add symbol_table x symb_addr;
+         Hashtbl.add symbol_table x (symb_addr, Int64);
          List.concat [tac_list ; [move] ; create_tac_list t sym_num] 
          (* list.concat is slow, make your concat specifically for tac's*)
        else
-         let reg = Hashtbl.find symbol_table x in
+         let reg, stype = Hashtbl.find symbol_table x in
          let tac_list, _, arg = eval_expr y sym_num in
          let move = move_instr arg reg in
-         Hashtbl.add symbol_table x reg;
+         Hashtbl.add symbol_table x (reg, stype);
          List.concat [tac_list ; [move] ; create_tac_list t sym_num]
-    | Declaration (spec, symb)->
-       (match spec with
-       | External ->
-          add_to_ref_ident_list symb extern_symbol_list
-       | NoneType -> raise (Failure "Illegal state in create_tac_list: Declaration"));
-       create_tac_list t sym_num
     | ReturnStatement x ->
        let tac_list, _, arg = eval_expr x sym_num in
        let syscall = syscall_instr 94 arg in
@@ -197,9 +219,18 @@ let rec create_tac_list ast sym_num =
     | ExpressionStatement x ->
        (match x with
        | Function (name, args) ->
-          let tac_list, _, list = eval_cse args sym_num in
-          let ir_instr = func_instr name None list in
-          List.concat [tac_list ;  [ir_instr] ; create_tac_list t sym_num]
+          let _, stype = Hashtbl.find symbol_table name in
+          (match stype with
+          | Function (_, params) ->
+             if List.length params > cse_length args then
+               raise (Failure ("Error: too few arguments in " ^ name))
+             else if List.length params < cse_length args then
+               raise (Failure ("Error: too many arguments in " ^ name))
+             else
+               let tac_list, _, list = eval_cse args sym_num in
+               let ir_instr = func_instr name None list in
+               List.concat [tac_list ;  [ir_instr] ; create_tac_list t sym_num]
+          | _ -> raise (Failure "Illegal state in create_tac_list: FunctionUsage"))
        | _ -> failwith "Unimplemented in ExpressionStatement")
     | WhileStatement (x, y)  -> (
       let start_label = create_num_label label_counter in
@@ -214,6 +245,13 @@ let rec create_tac_list ast sym_num =
           List.concat [[Label start_label] ; tac_list_1 ; tac_list_2 ;
                        [branch] ; body ; [jump; Label end_label] ; create_tac_list t sym_num]
        | _ -> failwith "Unimplemented: While statement without relation")
+    | FuncDecl (spec, symb, cse) ->
+       (match spec with
+       | External ->
+          add_to_ref_ident_list symb extern_symbol_list;
+          Hashtbl.add symbol_table symb (Symbol symb, Function (External, cse_to_stype_list cse))
+       | NoneType -> raise (Failure "Illegal state in create_tac_list: FuncDecl"));
+       create_tac_list t sym_num
     | IfStatement (x, y, z) ->
        let skip_then_branch_label = create_num_label label_counter in
        (match x with
@@ -233,7 +271,7 @@ let rec create_tac_list ast sym_num =
                          [jump] ; [Label skip_then_branch_label] ; else_body ; 
                          [Label end_label] ; create_tac_list t sym_num]
          | _ -> failwith "Unimplemented: If statement without relation")
-    | FunctionInitialization (name, _, stmts) ->
+    | FuncInit (name, _, stmts) ->
        let subprog = Label name :: create_tac_list stmts sym_num in
        List.concat [subprog ; create_tac_list t sym_num]
     | EndStatement -> []

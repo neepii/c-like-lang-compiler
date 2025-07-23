@@ -53,10 +53,10 @@ type storage = External
 type stmt = Assignment of ident * expr
           | IfStatement of expr * stmt list * stmt list
           | WhileStatement of expr * stmt list 
-          | FunctionInitialization of ident * expr * stmt list
+          | FuncInit of ident * expr * stmt list
           | ReturnStatement of expr
           | ExpressionStatement of expr
-          | Declaration of storage * ident
+          | FuncDecl of storage * ident * expr
           | NoneStatement
           | EndStatement
 
@@ -297,8 +297,14 @@ let rec parse_outer_stmt token_list =
           | Identifier ->
              let symbol = fst (List.hd t) in
              let tail = parse_match Identifier t in
-             let tail = parse_match Punctuator tail in
-             (Declaration (External, symbol), tail)
+             if snd (List.hd tail) = LeftParenthesis then
+               let tail = parse_match LeftParenthesis tail in
+               let expr, tail = parse_expr tail in
+               let tail = parse_match RightParenthesis tail in
+               let tail = parse_match Punctuator tail in
+               (FuncDecl (External, symbol, expr), tail)
+             else 
+               failwith "Unimplemented: external without params"
           | _ -> raise (Failure "Syntax error: no identifier after extern keyword"))
        | Identifier ->
           let tail = parse_match LeftParenthesis t in
@@ -307,7 +313,7 @@ let rec parse_outer_stmt token_list =
           let tail = parse_match LeftCurly tail in
           let stmts, tail = parse_stmts tail in
           let tail = parse_match RightCurly tail in
-          (FunctionInitialization  (fst h, expression, stmts), tail)
+          (FuncInit  (fst h, expression, stmts), tail)
        | EOF ->
           (EndStatement, [])
        | _ -> raise (Failure "Illegal state in parse_outer_stmt")
@@ -353,12 +359,13 @@ let rec string_of_stmt ast_list =
   | h :: t -> 
      let string = 
       match h with
-      | Declaration (spec, name) ->
+      | FuncDecl (spec, name, expr) ->
          (match spec with
          | External -> "extern "
          | NoneType -> ""
          )
          ^ name
+         ^ string_of_expr expr
          ^ " ; "
       | ReturnStatement x ->
          "return "
@@ -370,7 +377,7 @@ let rec string_of_stmt ast_list =
          ^  " ; "
       | ExpressionStatement x ->
          string_of_expr x ^ " ;\n"
-      | FunctionInitialization (x, y, z) ->
+      | FuncInit (x, y, z) ->
          x
          ^ "(" 
          ^ string_of_expr y 

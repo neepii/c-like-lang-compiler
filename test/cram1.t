@@ -4,19 +4,22 @@
   > ./a.out
   > }
 
-  $ echo 'main() { n = 1; print_int(n); return 0; }' > temp_source
+  $ echo 'main() { return 0; }' > temp_source
+  $ test_program
+
+  $ echo 'extern print_int(n); main() { n = 1; print_int(n); return 0; }' > temp_source
   $ test_program
   1
 
-  $ echo 'extern print_hw; main() { print_hw(); return 0; }' > temp_source
+  $ echo 'extern print_hw(); main() { print_hw(); return 0; }' > temp_source
   $ test_program
   Hello, World!
 
-  $ echo 'extern print_int; main() { a=0; b=1; n=5; while (n>1) {b=a+b;a=b-a;n=n-1;} print_int(a); return 0; }' > temp_source
+  $ echo 'extern print_int(n); main() { a=0; b=1; n=5; while (n>1) {b=a+b;a=b-a;n=n-1;} print_int(a); return 0; }' > temp_source
   $ test_program
   3
 
-  $ echo 'extern print_int; main() { acc=1; n=6; while (n>1)  {acc=acc*n; n=n-1; } print_int(acc); return 0; }' > temp_source
+  $ echo 'extern print_int(n); main() { acc=1; n=6; while (n>1)  {acc=acc*n; n=n-1; } print_int(acc); return 0; }' > temp_source
   $ test_program
   720
 
