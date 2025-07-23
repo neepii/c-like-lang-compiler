@@ -15,9 +15,9 @@
   $ test_program
   Hello, World!
 
-  $ echo 'extern print_int(n); main() { a=0; b=1; n=5; while (n>1) {b=a+b;a=b-a;n=n-1;} print_int(a); return 0; }' > temp_source
+  $ echo 'extern print_int(n); main() { a=0; b=1; n=7; while (n>1) {b=a+b;a=b-a;n=n-1;} print_int(a); return 0; }' > temp_source
   $ test_program
-  3
+  8
 
   $ echo 'extern print_int(n); main() { acc=1; n=6; while (n>1)  {acc=acc*n; n=n-1; } print_int(acc); return 0; }' > temp_source
   $ test_program
