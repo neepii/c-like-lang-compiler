@@ -360,7 +360,7 @@ let rec string_of_expr ast =
   | Constant x -> "(" ^ string_of_int x ^ ")"
   | Function (x, y) -> 
      let string = String.concat ", " (List.map string_of_expr y) in
-     x ^ "(" ^ string ^ ")"
+     x ^ string
   | Negation x ->
      "(-"
      ^ string_of_expr x
@@ -370,6 +370,11 @@ let rec string_of_expr ast =
 
 let string_of_expr_list expr_list =
   String.concat ", " (List.map string_of_expr expr_list)
+
+let string_of_var var = 
+  match var with
+  | Variable var -> var
+  | _ -> raise (Failure "Error in string_of_var")
 
 let rec string_of_stmt ast_list =
   match ast_list with
@@ -397,9 +402,8 @@ let rec string_of_stmt ast_list =
          string_of_expr x ^ " ;\n"
       | FuncInit (x, y, z) ->
          x
-         ^ "(" 
          ^ string_of_expr_list y 
-         ^ ") {"
+         ^ "{"
          ^ string_of_stmt z
          ^ "}"
       | WhileStatement (x, y) ->
@@ -419,8 +423,7 @@ let rec string_of_stmt ast_list =
               ^ string_of_stmt z
               ^ "}"
          ) else ""
-      | EndStatement ->
-          "\n"
+      | EndStatement -> "\n"
       | NoneStatement -> ""
       (* | Frame x -> failwith "Unimplemented in string_of_stmt" *)
      in

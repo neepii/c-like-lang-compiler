@@ -23,3 +23,7 @@
   $ test_program
   720
 
+  $ echo 'exit(n) {return n ; } main(){ exit(143); }' > temp_source
+  $ test_program
+  [143]
+	[143]

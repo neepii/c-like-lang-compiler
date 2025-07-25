@@ -164,6 +164,17 @@ let eval_expr expr sym_num =
   let tac, _, ir = eval_expr_rec expr sym_num in
   (tac, ir)
 
+let rec allocate_params params sym_num =
+  match params with
+  | [] -> []
+  | h :: t -> 
+     match h with
+     | Variable name ->
+        let symb_addr, sym_num = give_symb_addr sym_num in
+        Hashtbl.add symbol_table name (symb_addr, Int64);
+        symb_addr :: allocate_params t sym_num
+     | _ -> raise (Failure "Non variable in parameter function initialization")
+
 let rec create_tac_list ast sym_num =
   match ast with
   | [] -> []
@@ -248,13 +259,23 @@ let rec create_tac_list ast sym_num =
                          [jump] ; [Label skip_then_branch_label] ; else_body ; 
                          [Label end_label] ; create_tac_list t sym_num]
          | _ -> failwith "Unimplemented: If statement without relation")
-    | FuncInit (name, _, stmts) ->
+    | FuncInit (name, params, stmts) ->
+       (* My programs can't have two variable with similar name in different scopes *)
+       (* My current calling convention is terrible, must rewrite register saving before function call *)
+       (* A function call can overwrite register values, caller does not save them *)
+       (* I need to implement function init without any register allocation *)
+       assert(List.length params <= 8);
+       let type_list = List.map (fun _ -> Int64) params in
+       List.iteri (fun i prm -> Printf.printf "%s\n" (string_of_var prm);Hashtbl.add symbol_table (string_of_var prm) (SymbAddr i, Int64)) params;
+       Hashtbl.add symbol_table name (Symbol name, Function (NoneType, type_list));
+
        let subprog = Label name :: create_tac_list stmts sym_num in
        List.concat [subprog ; create_tac_list t sym_num]
     | EndStatement -> []
     | _ -> raise (Failure "Can't create node for DAG")
 
 let create_frame ast =
+  print_ast ast;
   create_tac_list ast 0
 
 let string_of_label num =
@@ -491,8 +512,6 @@ let construct_function name args regs_num =
   let jump = string_of_instruction "call" [name] in
   let pop = List.mapi (fun index reg -> construct_move_operator (EffectiveAddress (index, (Register 2))) reg) args in (* temp *)  (* string_of_instruction "sd" [reg; string_of_int (8 * index) ^ "(sp)"]*)
   String.concat "" (List.concat [[allocate] ; push ; move; [jump] ; pop])
-
-
 
 let rec generate_code_rec tac regs_num =
   match tac with
