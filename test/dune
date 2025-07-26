@@ -5,6 +5,13 @@
  (preprocess (pps ppx_expect ))
  (inline_tests))
 
+(library
+ (name test_allocation)
+ (modules test_allocation)
+ (libraries base stdio compiler)
+ (preprocess (pps ppx_expect ))
+ (inline_tests))
+
 (executable
  (public_name test_qcheck)
  (name test_qcheck)
