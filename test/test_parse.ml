@@ -1,4 +1,3 @@
-open! Base
 open Compiler.Parse
 
 let%expect_test "basic ast 1" =

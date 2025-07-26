@@ -1,15 +1,17 @@
 (library
  (name test_parse)
  (modules test_parse)
- (libraries base compiler)
- (preprocess (pps ppx_expect ))
+ (libraries compiler)
+ (preprocess
+  (pps ppx_expect))
  (inline_tests))
 
 (library
  (name test_allocation)
  (modules test_allocation)
- (libraries base compiler)
- (preprocess (pps ppx_expect ))
+ (libraries compiler)
+ (preprocess
+  (pps ppx_expect))
  (inline_tests))
 
 (executable

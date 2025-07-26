@@ -1,4 +1,3 @@
-open! Base
 open Compiler.Gen
 open Compiler.Parse
 
