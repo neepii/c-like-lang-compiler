@@ -17,6 +17,9 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      - name: Install xmllint
+        run: sudo apt-get install -y binutils-riscv64-linux-gnu qemu-user
+
       - name: Checkout tree
         uses: actions/checkout@v4
 

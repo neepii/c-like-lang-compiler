@@ -5,7 +5,7 @@ This test require RISCV64 toolchain, specifically:
   $ test_program () { \
   > dune exec compiler temp_source object > /dev/null; \
   > riscv64-linux-gnu-as -march=rv64gc object -o main_temp.o && riscv64-linux-gnu-as -march=rv64gc $INSIDE_DUNE/../../asm/lib.s -o lib_temp.o && riscv64-linux-gnu-ld main_temp.o lib_temp.o; \
-  > ./a.out
+  > qemu-riscv64 -L /usr/riscv64-linux-gnu -cpu rv64 ./a.out
   > }
 
   $ echo 'main() { return 0; }' > temp_source
