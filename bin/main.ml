@@ -3,9 +3,6 @@
 open Compiler.Gen
 open Compiler.Parse
 
-(* maximum is 18 on riscv64 *)
-let num_of_registers_avail = 18
-
 let () =
   let ic = open_in Sys.argv.(1) in
   try
@@ -13,7 +10,7 @@ let () =
     let tokens = tokenize_text text in
     let ast = parse tokens in
     let dag = create_frame ast in
-    let output = generate_code dag num_of_registers_avail in
+    let output = generate_code dag in
     let oc = open_out Sys.argv.(2) in
     output_string oc output;
     print_endline output;
