@@ -34,7 +34,7 @@ type symbol_entry = {
 
 
 (* maximum is 18 on riscv64 *)
-let num_of_registers_avail = 18
+let num_of_registers_avail = 11
 
 let label_counter = ref 0
 
@@ -500,10 +500,12 @@ let construct_branchjump_operator bool_op operand1 operand2 label =
 
 
 let rec ir_to_gen_arg ir_arg reg location =
+  let regs_index = [| 9;17;18;19;20;21;22;23;24;25;26;27 |] in
   match ir_arg with
   | SymbAddr i -> 
      if location.(i) = -1 then
-       Register (10 + reg.(i))
+       let num = reg.(i) in
+       Register regs_index.(num)
      else
        EffectiveAddress (8 * location.(i), (Register 2))
   | Const x -> Immediate x
