@@ -1,4 +1,4 @@
-open Compiler.Gen
+sopen Compiler.Gen
 open Compiler.Parse
 
 let%expect_test "compute_live_intervals 1" =
@@ -137,7 +137,7 @@ let%expect_test "compute_live_intervals 3" =
     5: t4 := 1
     6: t5 := t2+t4
     7: t2 := t5
-    8: syscall 94 with t2
+    8: return t2
     t0 = 1
     t1 = 0
     t2 = 0
