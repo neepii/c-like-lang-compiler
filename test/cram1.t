@@ -46,3 +46,7 @@ This test require RISCV64 toolchain, specifically:
   $ echo 'exit() {return 143 ; } main(){ var = exit(); return var; }' > temp_source
   $ test_program
   [143]
+
+  $ echo 'id(n) { return n; }  main(){ var = id(143); return var; }' > temp_source
+  $ test_program
+  [143]

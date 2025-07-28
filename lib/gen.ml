@@ -3,6 +3,7 @@ open Parse
 
 type ir_arg = SymbAddr of int
             | Const of int
+            | FuncArg of int
             | Symbol of string
             | EffectiveAddress of int * ir_arg
             | None
@@ -34,8 +35,9 @@ type symbol_entry = {
 }
 
 
-(* maximum is 11 on riscv64, excluding argument registers *)
+(* saved registers, maximum is 11 on riscv64 *)
 let num_of_registers_avail = 11
+
 let label_counter = ref 0
 let max_symb_addr_counter = ref 0
 let extern_symbol_list = ref []
@@ -144,10 +146,10 @@ let rec eval_expr_rec expr sym_num =
      let tac_list = List.concat [tacs; [func]] in
      (tac_list, sym_num, symb_addr)
   | Variable x ->
-     let symb_addr, _ = Hashtbl.find symbol_table x in
-     (match symb_addr with
-     | SymbAddr _ -> 
-        ([] , sym_num, symb_addr)
+     let ir, _ = Hashtbl.find symbol_table x in
+     (match ir with
+     | SymbAddr _  | FuncArg _-> 
+        ([] , sym_num, ir)
      | _ -> failwith "unimpl in evaluation of variable")
   | Bop (x, y, z) -> (
     let tac_x, sym_num, symb_x = eval_expr_rec x sym_num in
@@ -279,12 +281,11 @@ let rec create_tac_list ast sym_num =
          | _ -> failwith "Unimplemented: If statement without relation")
     | FuncInit (name, params, stmts) ->
        (* My programs can't have two variable with similar name in different scopes *)
-       (* My current calling convention is terrible, must rewrite register saving before function call *)
        (* A function call can overwrite register values, caller does not save them *)
        (* I need to implement function init without any register allocation *)
        assert(List.length params <= 8);
        let type_list = List.map (fun _ -> Int64) params in
-       List.iteri (fun i prm -> Hashtbl.add symbol_table (string_of_var prm) (SymbAddr i, Int64)) params;
+       List.iteri (fun i prm -> Hashtbl.add symbol_table (string_of_var prm) (FuncArg i, Int64)) params;
        Hashtbl.add symbol_table name (Symbol name, Function (NoneType, type_list));
        let subprog =  Label name :: create_tac_list stmts sym_num in
        List.concat [subprog ; create_tac_list t sym_num]
@@ -519,6 +520,7 @@ let rec ir_to_gen_arg ir_arg reg location =
        EffectiveAddress (8 * (location.(i) + 2), (Register 2))
   | Const x -> Immediate x
   | Symbol x -> Symbol x
+  | FuncArg x -> Register (x + 10)
   | EffectiveAddress (x,y) -> EffectiveAddress (x, ir_to_gen_arg y reg location)
   | None -> None
 
@@ -717,15 +719,14 @@ let register_allocation live_interval offset register =
     ) live_interval;
   register_allocation_rec (Array.to_list live_interval) register reg_avail active offset 0
 
-
 let rec string_of_ir ir =
   match ir with
   | SymbAddr num -> "t" ^ string_of_int num
   | Const num -> string_of_int num
   | Symbol str -> "L." ^ str
+  | FuncArg num -> "a" ^ string_of_int num
   | EffectiveAddress (offset,ir)  -> string_of_int offset ^ "(" ^ string_of_ir ir ^ ")"
   | None -> ""
-
 
 let string_of_tac tac = 
   match tac with
@@ -752,29 +753,30 @@ let string_of_tac tac =
      | None -> ""
 
 
-let generate_code_frame tac_list reg location =
+let generate_code_frame tac_list =
+  let live_intervals = Array.init (!max_symb_addr_counter + 1) (fun i -> (-1, -1, i)) in
+  compute_live_intervals 0 tac_list live_intervals;
+  let offset_stack = Array.init (!max_symb_addr_counter + 1) (fun _ -> -1) in
+  let register = Array.init (!max_symb_addr_counter + 1) (fun _ -> (-1)) in
+  register_allocation live_intervals offset_stack register;
+  Stdlib.List.iteri (fun i el ->
+      Stdlib.Printf.printf "%d: %s\n" i (string_of_tac el)
+    ) tac_list;
   let offset_size = 
-    Array.fold_left (fun x el -> if el != -1 then x + 1 else x ) 0 location
+    Array.fold_left (fun x el -> if el != -1 then x + 1 else x ) 0 offset_stack
   in
   if offset_size > 0 then
     string_of_instruction "addi" ["sp"; "sp"; string_of_int (-8 * offset_size)]
   else ""
-  ^ generate_code_rec tac_list reg location
+  ^ generate_code_rec tac_list register offset_stack
 
 
 let generate_code tac_list =
-  let live_intervals = Array.init (!max_symb_addr_counter + 1) (fun i -> (-1, -1, i)) in
-  compute_live_intervals 0 tac_list live_intervals;
-  Stdlib.List.iteri (fun i el ->
-      Stdlib.Printf.printf "%d: %s\n" i (string_of_tac el)
-    ) tac_list;
-  let offset_stack = Array.init (!max_symb_addr_counter + 1) (fun _ -> -1) in
-  let register = Array.init (!max_symb_addr_counter + 1) (fun _ -> (-1)) in
-  register_allocation live_intervals offset_stack register;
+
   let string = 
   String.concat "" (List.map (fun x -> ".extern " ^ x ^ "\n") !extern_symbol_list) 
   ^ ".global _start\n"
-  ^ generate_code_frame tac_list register offset_stack
+  ^ generate_code_frame tac_list
   ^ "_start:\n  call main\n  li a7, 94\n  ecall\n"
   in 
   label_counter := 0;
