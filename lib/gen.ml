@@ -517,7 +517,7 @@ let rec ir_to_gen_arg ir_arg reg location =
        let num = reg.(i) in
        Register regs_index.(num)
      else
-       EffectiveAddress (8 * (location.(i) + 2), (Register 2))
+       EffectiveAddress (8 * (location.(i) + 1), (Register 2))
   | Const x -> Immediate x
   | Symbol x -> Symbol x
   | FuncArg x -> Register (x + 10)
@@ -527,25 +527,20 @@ let rec ir_to_gen_arg ir_arg reg location =
 let construct_function name (dest: gen_arg) args reg location =
   assert(List.length args <= 7);
   let gen_args = List.map (fun ir -> ir_to_gen_arg ir reg location) args in
-  let symb_addr_nums = List.map (fun ir ->
-                           (match ir with
-                           | SymbAddr num -> num
-                           | _ -> raise (Failure "Function arguments are not symbol addresses"))
-                         ) args
-  in
-  List.iteri (fun i ir -> reg.(ir) <- i + 10) symb_addr_nums;
   let length = List.length args in
-  let allocate = if length = 0 then "" else string_of_instruction "addi" ["sp"; "sp"; string_of_int (-8 * length)] in
-  let deallocate = if length = 0 then "" else string_of_instruction "addi" ["sp"; "sp"; string_of_int (8 * length)] in
-  let push = List.mapi (fun index reg -> construct_move_operator reg (EffectiveAddress (index, (Register 2)))) gen_args in
+  let allocate = construct_arith_operator Sub (Register 2) (Register 2) (Immediate (8*(length+1))) in
+  let deallocate = construct_arith_operator Add (Register 2) (Register 2) (Immediate (8*(length+1))) in
+  let push = List.mapi (fun index reg -> construct_move_operator reg (EffectiveAddress (index + 1, (Register 2)))) gen_args in
+  let push_ra = construct_move_operator (Register 1) (EffectiveAddress (0, (Register 2))) in
   let move = List.mapi (fun index reg -> construct_move_operator reg (Register (index + 10))) gen_args in
   let jump = string_of_instruction "call" [name] in
-  let pop = List.mapi (fun index reg -> construct_move_operator (EffectiveAddress (index, (Register 2))) reg) gen_args in
+  let pop = List.mapi (fun index reg -> construct_move_operator (EffectiveAddress (index + 1, (Register 2))) reg) gen_args in
+  let pop_ra = construct_move_operator (EffectiveAddress (0, (Register 2))) (Register 1) in
   if dest = None then
-    String.concat "" (List.concat [[allocate] ; push ; move; [jump] ; pop; [deallocate]])
+    String.concat "" (List.concat [[allocate] ; push ; [push_ra] ; move; [jump] ; pop; [pop_ra]; [deallocate]])
   else 
     let move_return_value = construct_move_operator (Register 10) dest in
-    String.concat "" (List.concat [[allocate] ; push ; move; [jump] ; pop; [deallocate; move_return_value]])
+    String.concat "" (List.concat [[allocate] ; push ; [push_ra] ; move; [jump] ; pop; [pop_ra]; [deallocate; move_return_value]])
 
 let ident_is_func ident =
   let opt = Hashtbl.find_opt symbol_table ident in
@@ -589,19 +584,17 @@ let rec generate_code_rec tac reg location =
        | Label ident ->
           ident ^ ":\n"
           ^ if ident_is_func ident then
-              construct_arith_operator Sub (Register 2) (Register 2) (Immediate 16)
+              construct_arith_operator Sub (Register 2) (Register 2) (Immediate 8)
               ^ construct_move_operator (Register 8) (EffectiveAddress (0, Register 2))
-              ^ construct_move_operator (Register 1) (EffectiveAddress (8, Register 2))
             else ""
        | CallFunction (name, dest, args) ->
           let gen_dest = ir_to_gen_arg dest reg location in
-          construct_function name gen_dest args reg location
+          construct_function name gen_dest args reg location          
        | Return ir_arg ->
           let gen_arg = ir_to_gen_arg ir_arg reg location in
           construct_move_operator gen_arg (Register 10)
           ^ construct_move_operator (EffectiveAddress (0, Register 2)) (Register 8)
-          ^ construct_move_operator (EffectiveAddress (8, Register 2)) (Register 1)
-          ^ construct_arith_operator Add (Register 2) (Register 2) (Immediate 16)
+          ^ construct_arith_operator Add (Register 2) (Register 2) (Immediate 8)
           ^ "  ret\n"
        | None -> ""
        (* | _ -> failwith "Unimplemented in generate_code_rec" *)
