@@ -50,7 +50,7 @@ let riscv64_reg_list = [|
     "t0";
     "t1";
     "t2";
-    "fp"; (*or is "s0"?*)
+    "fp";
     "s1";
     "a0";
     "a1";
@@ -133,9 +133,18 @@ let rec eval_expr_rec expr sym_num =
      let symb_addr, sym_num = give_symb_addr sym_num in
      let move = move_instr (Const x) symb_addr in
      ([move], sym_num, symb_addr)
+  | Function (name, args) ->
+     let symb_addr, sym_num = give_symb_addr sym_num in
+     let list = List.map (
+                         fun expr -> let tac, _, ir = eval_expr_rec expr sym_num in
+                       (tac,ir)) args in
+     let tacs = List.concat (List.map fst list) in
+     let arg_list = List.map snd list in
+     let func = func_instr name symb_addr arg_list in
+     let tac_list = List.concat [tacs; [func]] in
+     (tac_list, sym_num, symb_addr)
   | Variable x ->
      let symb_addr, _ = Hashtbl.find symbol_table x in
-
      (match symb_addr with
      | SymbAddr _ -> 
         ([] , sym_num, symb_addr)
@@ -301,7 +310,7 @@ let get_asm_operand arg =
      | _ -> failwith "Unimplemented in get_asm_operand")
      in
      string_of_int x ^ "(" ^ addr  ^ ")"
-  | _ -> raise (Failure "None in get_asm_operand")
+  | None -> raise (Failure "None in get_asm_operand")
 
 let string_of_instruction operator operand_list =
   match operand_list with
@@ -333,7 +342,7 @@ let construct_move_operator operand1 operand2 =
     | (Symbol _, _ ) ->  string_of_instruction "la" [second; first]
     | (Register _, EffectiveAddress _) -> string_of_instruction "sd" [first;second]
     | (Immediate _, Register _) -> string_of_instruction "li" [second;first]
-    | (Immediate _, EffectiveAddress _) -> 
+    | (Immediate _, EffectiveAddress _) ->
        string_of_instruction "li" ["t0"; first] ^ string_of_instruction "sd" ["t0"; second]
 
     | (EffectiveAddress _, Register _) -> string_of_instruction "ld" [second;first]
@@ -507,22 +516,34 @@ let rec ir_to_gen_arg ir_arg reg location =
        let num = reg.(i) in
        Register regs_index.(num)
      else
-       EffectiveAddress (8 * (location.(i) + 1), (Register 2))
+       EffectiveAddress (8 * (location.(i) + 2), (Register 2))
   | Const x -> Immediate x
   | Symbol x -> Symbol x
   | EffectiveAddress (x,y) -> EffectiveAddress (x, ir_to_gen_arg y reg location)
   | None -> None
 
-let construct_function name args reg location =
+let construct_function name (dest: gen_arg) args reg location =
   assert(List.length args <= 7);
-  let args = List.map (fun ir -> ir_to_gen_arg ir reg location) args in
+  let gen_args = List.map (fun ir -> ir_to_gen_arg ir reg location) args in
+  let symb_addr_nums = List.map (fun ir ->
+                           (match ir with
+                           | SymbAddr num -> num
+                           | _ -> raise (Failure "Function arguments are not symbol addresses"))
+                         ) args
+  in
+  List.iteri (fun i ir -> reg.(ir) <- i + 10) symb_addr_nums;
   let length = List.length args in
   let allocate = if length = 0 then "" else string_of_instruction "addi" ["sp"; "sp"; string_of_int (-8 * length)] in
-  let push = List.mapi (fun index reg -> construct_move_operator reg (EffectiveAddress (index, (Register 2)))) args in
-  let move = List.mapi (fun index reg -> construct_move_operator reg (Register (index + 10))) args in
+  let deallocate = if length = 0 then "" else string_of_instruction "addi" ["sp"; "sp"; string_of_int (8 * length)] in
+  let push = List.mapi (fun index reg -> construct_move_operator reg (EffectiveAddress (index, (Register 2)))) gen_args in
+  let move = List.mapi (fun index reg -> construct_move_operator reg (Register (index + 10))) gen_args in
   let jump = string_of_instruction "call" [name] in
-  let pop = List.mapi (fun index reg -> construct_move_operator (EffectiveAddress (index, (Register 2))) reg) args in
-  String.concat "" (List.concat [[allocate] ; push ; move; [jump] ; pop])
+  let pop = List.mapi (fun index reg -> construct_move_operator (EffectiveAddress (index, (Register 2))) reg) gen_args in
+  if dest = None then
+    String.concat "" (List.concat [[allocate] ; push ; move; [jump] ; pop; [deallocate]])
+  else 
+    let move_return_value = construct_move_operator (Register 10) dest in
+    String.concat "" (List.concat [[allocate] ; push ; move; [jump] ; pop; [deallocate; move_return_value]])
 
 let ident_is_func ident =
   let opt = Hashtbl.find_opt symbol_table ident in
@@ -566,22 +587,24 @@ let rec generate_code_rec tac reg location =
        | Label ident ->
           ident ^ ":\n"
           ^ if ident_is_func ident then
-              construct_arith_operator Sub (Register 2) (Register 2) (Immediate (8))
-              ^ construct_move_operator (Register 1) (EffectiveAddress (0, Register 2))
+              construct_arith_operator Sub (Register 2) (Register 2) (Immediate 16)
+              ^ construct_move_operator (Register 8) (EffectiveAddress (0, Register 2))
+              ^ construct_move_operator (Register 1) (EffectiveAddress (8, Register 2))
             else ""
-       | CallFunction (name, _, args) ->
-          construct_function name args reg location
+       | CallFunction (name, dest, args) ->
+          let gen_dest = ir_to_gen_arg dest reg location in
+          construct_function name gen_dest args reg location
        | Return ir_arg ->
           let gen_arg = ir_to_gen_arg ir_arg reg location in
           construct_move_operator gen_arg (Register 10)
-          ^ construct_move_operator (EffectiveAddress (0, Register 2)) (Register 1)
+          ^ construct_move_operator (EffectiveAddress (0, Register 2)) (Register 8)
+          ^ construct_move_operator (EffectiveAddress (8, Register 2)) (Register 1)
+          ^ construct_arith_operator Add (Register 2) (Register 2) (Immediate 16)
           ^ "  ret\n"
        | None -> ""
        (* | _ -> failwith "Unimplemented in generate_code_rec" *)
      in
-     tac ^  generate_code_rec t reg location
-
-
+     tac ^ generate_code_rec t reg location
 
 let update_interval time ir live_intervals = 
   match ir with
@@ -742,6 +765,9 @@ let generate_code_frame tac_list reg location =
 let generate_code tac_list =
   let live_intervals = Array.init (!max_symb_addr_counter + 1) (fun i -> (-1, -1, i)) in
   compute_live_intervals 0 tac_list live_intervals;
+  Stdlib.List.iteri (fun i el ->
+      Stdlib.Printf.printf "%d: %s\n" i (string_of_tac el)
+    ) tac_list;
   let offset_stack = Array.init (!max_symb_addr_counter + 1) (fun _ -> -1) in
   let register = Array.init (!max_symb_addr_counter + 1) (fun _ -> (-1)) in
   register_allocation live_intervals offset_stack register;

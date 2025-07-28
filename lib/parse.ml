@@ -148,7 +148,62 @@ let get_string_sign oper =
   | Div -> "/"
   | Rem -> "%"
 
-let rec parse_sum token_list =
+let head_type (token_list: (ident * token_type) list ) =
+  if token_list != [] then
+    snd (List.hd token_list)
+  else
+    Epsilon
+
+let rec parse_prod token_list =
+  match token_list with
+    | [] -> raise (Failure "Illegal state in parse_prod")
+    | x :: [] ->
+       (parse_const x, [])
+    | h :: t ->
+       match snd h with
+       | FirstOperator ->
+          if fst h = "-" then
+            let product, tail = parse_prod t in
+            (Negation product, tail)
+          else
+            parse_prod t
+       | LeftParenthesis ->
+          let expression, tail = parse_sum t in
+          let tail_without_rightparenthesis = parse_match RightParenthesis tail in
+          if tail_without_rightparenthesis = [] then (expression, tail_without_rightparenthesis)
+          else if snd (List.hd tail_without_rightparenthesis) = SecondOperator then
+            let operator = get_sign (fst (List.hd tail_without_rightparenthesis)) in
+            let product, tail = parse_prod (List.tl tail_without_rightparenthesis) in
+            (Bop (expression, operator, product), tail)
+          else
+            (expression, tail_without_rightparenthesis)
+       | IntLiteral ->
+          let constant = parse_const h in
+          let operator = List.hd t in
+          if snd operator = SecondOperator then (
+            let loc_operator = get_sign (fst operator) in
+            let loc_product, tail = parse_prod (List.tl t) in
+            (Bop (constant, loc_operator, loc_product)) , tail)
+          else
+            (constant, t)
+       | Identifier ->
+          if t != [] && snd (List.hd t) = LeftParenthesis then
+            let name = fst h in
+            let args, tail = parse_args t in
+            (Function (name, args), tail)
+          else
+            let variable = parse_variable h in
+            let operator = List.hd t in
+            if snd operator = SecondOperator then (
+              let loc_operator = get_sign (fst operator) in
+              let loc_product, tail = parse_prod (List.tl t) in
+              (Bop (variable, loc_operator, loc_product)) , tail)
+            else
+              (variable, t)
+       | _ ->
+          (Epsilon, h :: t)
+
+and parse_sum token_list =
   match token_list with
     | [] -> raise (Failure "Illegal state in parse_sum")
     | x :: [] -> (fst (parse_prod [x])), []
@@ -161,58 +216,8 @@ let rec parse_sum token_list =
             (Bop (product, operator, expression), rem_expr))
           else
             (product, rem)
-
-and parse_prod token_list =
-  match token_list with
-    | [] -> raise (Failure "Illegal state in parse_prod")
-    | x :: [] ->
-       (parse_const x, [])
-    | h :: t ->
-       match snd h with
-       | FirstOperator ->
-          if fst h = "-" then
-            let product, rem = parse_prod t in
-            (Negation product, rem)
-          else
-            parse_prod t
-       | LeftParenthesis ->
-          let expression, rem = parse_sum t in
-          let rem_without_rightparenthesis = parse_match RightParenthesis rem in
-          if rem_without_rightparenthesis = [] then (expression, rem_without_rightparenthesis)
-          else if snd (List.hd rem_without_rightparenthesis) = SecondOperator then
-            let operator = get_sign (fst (List.hd rem_without_rightparenthesis)) in
-            let product, rem = parse_prod (List.tl rem_without_rightparenthesis) in
-            (Bop (expression, operator, product), rem)
-          else
-            (expression, rem_without_rightparenthesis)
-       | IntLiteral ->
-          let constant = parse_const h in
-          let operator = List.hd t in
-          if snd operator = SecondOperator then (
-            let loc_operator = get_sign (fst operator) in
-            let loc_product, rem = parse_prod (List.tl t) in
-            (Bop (constant, loc_operator, loc_product)) , rem)
-          else
-            (constant, t)
-       | Identifier ->
-          let variable = parse_variable h in
-          let operator = List.hd t in
-          if snd operator = SecondOperator then (
-            let loc_operator = get_sign (fst operator) in
-            let loc_product, rem = parse_prod (List.tl t) in
-            (Bop (variable, loc_operator, loc_product)) , rem)
-          else
-            (variable, t)
-       | _ ->
-          (Epsilon, h :: t)
-
-let head_type (token_list: (ident * token_type) list ) =
-  if token_list != [] then
-    snd (List.hd token_list)
-  else
-    Epsilon
   
-let rec parse_expr token_list =
+and parse_expr token_list =
   match token_list with
     | [] -> raise (Failure "Illegal state in parse_expr")
     | x :: [] -> (fst (parse_sum [x])), []
@@ -230,7 +235,7 @@ let rec parse_expr token_list =
          | _ ->
             (sum, tail)
 
-let rec parse_exprs token_list =
+and parse_exprs token_list =
   match token_list with
   | [] -> raise (Failure "Illegal state in parse_cse")
   | x :: [] -> 
@@ -242,7 +247,7 @@ let rec parse_exprs token_list =
             (expr :: fst (parse_exprs tail), tail)
          | _ -> ([expr], tail)
 
-let parse_args token_list =
+and parse_args token_list =
   let tail = parse_match LeftParenthesis token_list in
   if head_type tail = RightParenthesis then
     let tail = parse_match RightParenthesis tail in

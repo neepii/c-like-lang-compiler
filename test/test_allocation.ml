@@ -1,4 +1,4 @@
-sopen Compiler.Gen
+open Compiler.Gen
 open Compiler.Parse
 
 let%expect_test "compute_live_intervals 1" =

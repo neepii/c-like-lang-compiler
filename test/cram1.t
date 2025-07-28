@@ -43,6 +43,6 @@ This test require RISCV64 toolchain, specifically:
   $ test_program
   720
 
-  $ echo 'exit(n) {return n ; } main(){ exit(142); }' > temp_source
+  $ echo 'exit() {return 143 ; } main(){ var = exit(); return var; }' > temp_source
   $ test_program
-  [142]
+  [143]
