@@ -68,32 +68,23 @@ Test simple function from asm library
   > EOF
   $ test_program
   Hello, World!
-
-Test function that prints integer to stdout
-  $ cat > temp_source << EOF
-  > extern print_int(n); main() {
-  >   a=0; b=1; n=7; while (n>1) {b=a+b;a=b-a;n=n-1;
-  > } print_int(a); return 0; }
-  > EOF
-  $ test_program
-  1
-
 Test imperative-style fibonacci
   $ cat > temp_source << EOF
   > extern print_int(n);
   > main() {
   >   a = 0;
   >   b = 1;
-  >   n = 7;
+  >   n = 9;
   >   while (n > 1) {
   >     b = a + b;
   >     a = b - a;
   >     n = n - 1;
   >   }
-  >   print_int(a);
+  >   print_int(b);
   >   return 0;
   > }
   $ test_program
+  34
 
 Test imperative-style factorial
   $ cat > temp_source << EOF

@@ -21,7 +21,7 @@ type ir_instr = Move of ir_arg * ir_arg
               | Syscall of int * ir_arg
               | CallFunction of ident * ir_arg * ir_arg list
               | Return of ir_arg
-              | Jump of string
+              | Jump of string * ir_arg list
               | Label of string
               | None
 
@@ -83,7 +83,7 @@ let symbol_table = Hashtbl.create 16
 let func_instr name destination args = CallFunction (name, destination, args)
 let move_instr source destination = Move (source, destination)
 let neg_instr source destination = Neg (source, destination)
-let jump_instr label = Jump label
+let jump_instr label list = Jump (label, list)
 let branch_instr sign operand1 operand2 label = BranchJump (sign, label, operand1,operand2)
 let arith_instr op arg1 arg2 arg3 = ArithInstr (op, arg1, arg2, arg3)
 let none_instr = None
@@ -180,6 +180,24 @@ let rec eval_expr_rec expr sym_num =
   ))
   | _ -> failwith "Unimplemented in create_instr_for_expr"
 
+let ir_list_from_instr tac  =
+  match tac with
+  | Move (ir1, ir2) -> [ir1; ir2]
+  | ArithInstr (_, ir1, ir2, ir3) -> [ir1; ir2; ir3]
+  | Neg (ir1, ir2) -> [ir1; ir2]
+  | BranchJump (_, _, ir1, ir2) -> [ir1; ir2]
+  | Syscall (_, ir1) -> [ir1]
+  | CallFunction (_, ir1, ir_list) -> ir1 :: ir_list
+  | Return ir -> [ir]
+  | Jump _ -> []
+  | Label _ -> []
+  | None -> []
+
+let int_of_symb x =
+  match x with
+  | SymbAddr n -> Some n
+  | _ -> None
+
 let eval_expr expr sym_num =
   let tac, _, ir = eval_expr_rec expr sym_num in
   (tac, ir)
@@ -247,8 +265,11 @@ let rec create_tac_list ast sym_num =
           let tac_list_1, expr1 = eval_expr a sym_num in
           let tac_list_2, expr2 = eval_expr b sym_num in
           let branch = branch_instr (negate_bool_op sign) expr1 expr2 end_label in
-          let jump = jump_instr start_label in
+          let future_symb = !symb_addr_num_avail in
           let body = create_tac_list y sym_num in
+          let used_symbs = List.filter_map int_of_symb (List.concat (List.map (ir_list_from_instr) body)) in
+          let used_symbs = List.filter_map (fun x -> if (x <= future_symb) then Some (SymbAddr x) else None) used_symbs in
+          let jump = jump_instr start_label used_symbs in
           List.concat [[Label start_label] ; tac_list_1 ; tac_list_2 ;
                        [branch] ; body ; [jump; Label end_label] ; create_tac_list t sym_num]
        | _ -> failwith "Unimplemented: While statement without relation")
@@ -273,7 +294,7 @@ let rec create_tac_list ast sym_num =
                          then_body ; [Label skip_then_branch_label] ; create_tac_list t sym_num]
           else
             let end_label = create_num_label label_counter in
-            let jump = jump_instr end_label in
+            let jump = jump_instr end_label [] in
             let else_body = create_tac_list z sym_num in
             List.concat [tac_list_1 ; tac_list_2 ; [branch] ; then_body ; 
                          [jump] ; [Label skip_then_branch_label] ; else_body ; 
@@ -560,18 +581,7 @@ let ident_is_func ident =
      | _ -> false)
   | None -> false
 
-let ir_list_from_instr tac  =
-  match tac with
-  | Move (ir1, ir2) -> [ir1; ir2]
-  | ArithInstr (_, ir1, ir2, ir3) -> [ir1; ir2; ir3]
-  | Neg (ir1, ir2) -> [ir1; ir2]
-  | BranchJump (_, _, ir1, ir2) -> [ir1; ir2]
-  | Syscall (_, ir1) -> [ir1]
-  | CallFunction (_, ir1, ir_list) -> ir1 :: ir_list
-  | Return ir -> [ir]
-  | Jump _ -> []
-  | Label _ -> []
-  | None -> []
+
 
 let rec ir_list_from_instrs_until_end tac_list = 
   match tac_list with
@@ -580,11 +590,7 @@ let rec ir_list_from_instrs_until_end tac_list =
      match h with
      | _ ->
         let list = ir_list_from_instr h in
-        let int_list = List.filter_map (fun x -> 
-                           match x with
-                           | SymbAddr n -> Some n
-                           | _ -> None
-                         ) list in
+        let int_list = List.filter_map int_of_symb list in
         List.concat [int_list ; ir_list_from_instrs_until_end t]
 
 let regs_from_instrs tac_list reg location =
@@ -626,7 +632,7 @@ let rec generate_code_rec tac reg location live regs_used =
           ^ "  ecall\n"
           in
           (string, regs_used)
-       | Jump dest ->
+       | Jump (dest, _) ->
           (string_of_instruction "j" [dest], regs_used)
        | Neg (source, destination) ->
           let arg1 = ir_to_gen_arg source reg location in
@@ -684,8 +690,13 @@ let rec compute_live_intervals time tac_list live_intervals =
   | [] -> ()
   | h :: t -> 
      let list = ir_list_from_instr h in
+     (match h with
+     | Jump (_, list) -> 
+        List.iter (fun ir -> update_interval time ir live_intervals) list;
+     | _ -> ());
      List.iter (fun ir -> update_interval time ir live_intervals) list;
      compute_live_intervals (time + 1) t live_intervals
+
 
 
 let spill_at_interval interval active register offset_stack last_offset =
@@ -774,7 +785,7 @@ let string_of_tac tac =
         let arg_list = List.map string_of_ir ir_list in
         let arg_str = String.concat ", " arg_list in
         string_of_ir ir1 ^ " := " ^ name ^ "(" ^ arg_str ^ ")"
-     | Jump label ->
+     | Jump (label,_) ->
         "jump to " ^ label
      | Label name ->
         "L." ^ name
