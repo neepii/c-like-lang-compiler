@@ -59,6 +59,7 @@ This test require RISCV64 toolchain, specifically:
   $ test_program
   1
 
+Test simple function from asm library
   $ cat > temp_source << EOF
   > extern print_hw(); 
   > main() {
@@ -68,6 +69,7 @@ This test require RISCV64 toolchain, specifically:
   $ test_program
   Hello, World!
 
+Test function that prints integer to stdout
   $ cat > temp_source << EOF
   > extern print_int(n); main() {
   >   a=0; b=1; n=7; while (n>1) {b=a+b;a=b-a;n=n-1;
@@ -76,6 +78,24 @@ This test require RISCV64 toolchain, specifically:
   $ test_program
   1
 
+Test imperative-style fibonacci
+  $ cat > temp_source << EOF
+  > extern print_int(n);
+  > main() {
+  >   a = 0;
+  >   b = 1;
+  >   n = 7;
+  >   while (n > 1) {
+  >     b = a + b;
+  >     a = b - a;
+  >     n = n - 1;
+  >   }
+  >   print_int(a);
+  >   return 0;
+  > }
+  $ test_program
+
+Test imperative-style factorial
   $ cat > temp_source << EOF
   > extern print_int(n);
   > main() {
@@ -90,6 +110,7 @@ This test require RISCV64 toolchain, specifically:
   $ test_program
   720
 
+Test constant function
   $ cat > temp_source << EOF
   > exit() {
   >  return 143 ; 
@@ -101,6 +122,7 @@ This test require RISCV64 toolchain, specifically:
   $ test_program
   [143]
 
+Test identity function
   $ cat > temp_source << EOF
   > id(n) {
   >   return n; 
@@ -141,6 +163,7 @@ This test require RISCV64 toolchain, specifically:
   $ test_program
   [143]
 
+Test recursive-style factorial
   $ cat > temp_source << EOF
   > extern print_int(n);
   > 
@@ -158,22 +181,24 @@ This test require RISCV64 toolchain, specifically:
   $ test_program
   120
 
+
+Test recursive-style fibonacci
   $ cat > temp_source << EOF
   > extern print_int(n);
   > 
   > fib(n) {
-  > 	if (n == 1) {
-  > 	  return 1;
-  > 	}
-  > 	if (n == 0) {
-  > 	  return 0;
-  > 	}
-  > 	return fib(n-1) + fib(n-2);
+  >   if (n == 1) {
+  >     return 1;
+  >   }
+  >   if (n == 0) {
+  >     return 0;
+  >   }
+  >   return fib(n-1) + fib(n-2);
   > }
   > 
   > main(){ 
-  > 	print_int(fib(13));
-  > 	return 0;
+  >   print_int(fib(13));
+  >   return 0;
   > }
   $ test_program
   233
