@@ -551,55 +551,116 @@ let ident_is_func ident =
      | _ -> false)
   | None -> false
 
-let rec generate_code_rec tac reg location =
+let ir_list_from_instr tac  =
+  match tac with
+  | Move (ir1, ir2) -> [ir1; ir2]
+  | ArithInstr (_, ir1, ir2, ir3) -> [ir1; ir2; ir3]
+  | Neg (ir1, ir2) -> [ir1; ir2]
+  | BranchJump (_, _, ir1, ir2) -> [ir1; ir2]
+  | Syscall (_, ir1) -> [ir1]
+  | CallFunction (_, ir1, ir_list) -> ir1 :: ir_list
+  | Return ir -> [ir]
+  | Jump _ -> []
+  | Label _ -> []
+  | None -> []
+
+let rec ir_list_from_instrs_until_return tac_list = 
+  match tac_list with
+  | [] -> []
+  | h :: t -> 
+     match h with
+     | Return ir ->
+        (match ir with
+        | SymbAddr n -> [n]
+        | _ -> [])
+     | _ ->
+        let list = ir_list_from_instr h in
+        let int_list = List.filter_map (fun x -> 
+                           match x with
+                           | SymbAddr n -> Some n
+                           | _ -> None
+                         ) list in
+        List.concat [int_list ; ir_list_from_instrs_until_return t]
+
+let regs_from_instrs tac_list reg location =
+  let list = ir_list_from_instrs_until_return tac_list in
+  let list = List.sort_uniq ( - ) list in
+  let reg_list = List.map (fun i -> ir_to_gen_arg (SymbAddr i) reg location) list in
+  let cmp_regs a b =
+    match (a,b) with
+    | (Register a, Register b) -> a - b
+    | _ -> 0
+  in
+  let reg_list = List.sort_uniq cmp_regs reg_list in
+  reg_list
+ 
+let rec generate_code_rec tac reg location live regs_used =
   match tac with
   | [] -> ""
   | h :: t ->
-     let tac =
+     let tac, regs_used =
        match h with
        | Move (source, destination) ->
           let arg1 = ir_to_gen_arg source reg location in
           let arg2 = ir_to_gen_arg destination reg location in
-          construct_move_operator arg1 arg2
+          (construct_move_operator arg1 arg2, regs_used)
        | ArithInstr (op, ir_destination, ir_operand1, ir_operand2) ->
           let gen_operand1 = ir_to_gen_arg ir_operand1 reg location in
           let gen_operand2 = ir_to_gen_arg ir_operand2 reg location in
           let gen_destination = ir_to_gen_arg ir_destination reg location in
-          construct_arith_operator op gen_destination gen_operand1 gen_operand2
+          (construct_arith_operator op gen_destination gen_operand1 gen_operand2, regs_used)
        | BranchJump (bool_op, num_label, ir_operand1, ir_operand2) ->
           let gen_operand1 = ir_to_gen_arg ir_operand1 reg location in
           let gen_operand2 = ir_to_gen_arg ir_operand2 reg location in
-          construct_branchjump_operator bool_op gen_operand1 gen_operand2 num_label
+          (construct_branchjump_operator bool_op gen_operand1 gen_operand2 num_label, regs_used)
        | Syscall (num, arg1) ->
           let gen_arg = ir_to_gen_arg arg1 reg location in
+          let string =
           construct_move_operator gen_arg (Register 10)
           ^ construct_move_operator (Immediate num) (Register 16)
           ^ "  ecall\n"
+          in
+          (string, regs_used)
        | Jump dest ->
-          string_of_instruction "j" [dest]
+          (string_of_instruction "j" [dest], regs_used)
        | Neg (source, destination) ->
           let arg1 = ir_to_gen_arg source reg location in
           let arg2 = ir_to_gen_arg destination reg location in
-          construct_neg_operator arg1 arg2
+          (construct_neg_operator arg1 arg2, regs_used)
        | Label ident ->
-          ident ^ ":\n"
-          ^ if ident_is_func ident then
-              construct_arith_operator Sub (Register 2) (Register 2) (Immediate 8)
+          let string, regs_used =
+          if ident_is_func ident then
+              let save_regs = regs_from_instrs t reg location in
+              let push = List.mapi (fun i reg -> construct_move_operator reg (EffectiveAddress ((i+1) * 8, Register 2))) save_regs in
+              let push_string = String.concat "" push in
+              let string =
+              construct_arith_operator Sub (Register 2) (Register 2) (Immediate (8 * (1 + List.length save_regs)))
+              ^ push_string
               ^ construct_move_operator (Register 8) (EffectiveAddress (0, Register 2))
-            else ""
+              in
+              (string, save_regs)
+            else ("", regs_used)
+          in
+          (ident ^ ":\n" ^  string, regs_used)
        | CallFunction (name, dest, args) ->
           let gen_dest = ir_to_gen_arg dest reg location in
-          construct_function name gen_dest args reg location          
+          (construct_function name gen_dest args reg location, regs_used)
        | Return ir_arg ->
           let gen_arg = ir_to_gen_arg ir_arg reg location in
+          let pop = List.mapi (fun i reg -> construct_move_operator (EffectiveAddress ((i+1) * 8, Register 2)) reg) regs_used in
+          let pop_string = String.concat "" pop in
+          let string = 
           construct_move_operator gen_arg (Register 10)
           ^ construct_move_operator (EffectiveAddress (0, Register 2)) (Register 8)
-          ^ construct_arith_operator Add (Register 2) (Register 2) (Immediate 8)
+          ^ pop_string
+          ^ construct_arith_operator Add (Register 2) (Register 2) (Immediate (8 * (1 + List.length regs_used)))
           ^ "  ret\n"
-       | None -> ""
+          in
+          (string, [])
+       | None -> ("", regs_used)
        (* | _ -> failwith "Unimplemented in generate_code_rec" *)
      in
-     tac ^ generate_code_rec t reg location
+     tac ^ generate_code_rec t reg location live regs_used
 
 let update_interval time ir live_intervals = 
   match ir with
@@ -612,36 +673,15 @@ let update_interval time ir live_intervals =
        live_intervals.(num) <- (start_p, time, index)
   | _ -> ()
 
+
 let rec compute_live_intervals time tac_list live_intervals =
   match tac_list with
   | [] -> ()
   | h :: t -> 
-     (match h with
-     | Move (ir1, ir2) ->
-        update_interval time ir1 live_intervals;
-        update_interval time ir2 live_intervals;
-     | ArithInstr (_, ir1, ir2, ir3) ->
-        update_interval time ir1 live_intervals;
-        update_interval time ir2 live_intervals;
-        update_interval time ir3 live_intervals;
-     | Neg (ir1, ir2) ->
-        update_interval time ir1 live_intervals;
-        update_interval time ir2 live_intervals;
-     | BranchJump (_, _, ir1, ir2) ->
-        update_interval time ir1 live_intervals;
-        update_interval time ir2 live_intervals;
-     | Syscall (_, ir1) ->
-        update_interval time ir1 live_intervals;
-     | CallFunction (_, ir1, ir_list) ->      
-        update_interval time ir1 live_intervals;
-        List.iter (fun ir -> update_interval time ir live_intervals) ir_list;
-     | Return ir ->
-        update_interval time ir live_intervals;
-     | Jump _ -> ()
-     | Label _ -> ()
-     | None -> ()
-     );
+     let list = ir_list_from_instr h in
+     List.iter (fun ir -> update_interval time ir live_intervals) list;
      compute_live_intervals (time + 1) t live_intervals
+
 
 let spill_at_interval interval active register offset_stack last_offset =
   let rev_active = List.rev active in
@@ -653,9 +693,10 @@ let spill_at_interval interval active register offset_stack last_offset =
       register.(j) <- reg_i;
       offset_stack.(j) <- last_offset;
       interval :: List.rev (List.tl rev_active) 
-    else
-      (* offset_stack.(i) <- last_offset; *)
+    else (
+      offset_stack.(i) <- last_offset;
       active
+    )
   in
   (active, last_offset + 1)
 
@@ -752,20 +793,19 @@ let generate_code_frame tac_list =
   let offset_stack = Array.init (!max_symb_addr_counter + 1) (fun _ -> -1) in
   let register = Array.init (!max_symb_addr_counter + 1) (fun _ -> (-1)) in
   register_allocation live_intervals offset_stack register;
-  Stdlib.List.iteri (fun i el ->
-      Stdlib.Printf.printf "%d: %s\n" i (string_of_tac el)
-    ) tac_list;
+  (* Stdlib.List.iteri (fun i el -> *)
+  (*     Stdlib.Printf.printf "%d: %s\n" i (string_of_tac el) *)
+  (*   ) tac_list; *)
   let offset_size = 
     Array.fold_left (fun x el -> if el != -1 then x + 1 else x ) 0 offset_stack
   in
   if offset_size > 0 then
     string_of_instruction "addi" ["sp"; "sp"; string_of_int (-8 * offset_size)]
   else ""
-  ^ generate_code_rec tac_list register offset_stack
+  ^ generate_code_rec tac_list register offset_stack live_intervals []
 
 
 let generate_code tac_list =
-
   let string = 
   String.concat "" (List.map (fun x -> ".extern " ^ x ^ "\n") !extern_symbol_list) 
   ^ ".global _start\n"

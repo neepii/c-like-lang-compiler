@@ -47,6 +47,10 @@ This test require RISCV64 toolchain, specifically:
   $ test_program
   [143]
 
-  $ echo 'id(n) { return n; }  main(){ var = id(143); return var; }' > temp_source
+  $ echo 'id(n) { return n; }  main(){ var = id(142); return var; }' > temp_source
   $ test_program
-  [143]
+  [142]
+
+  $ echo 'extern print_int(n); arith(n) { n = n + 1; n = n + 1; b = n + n; return b;} main () {var = arith(5);print_int(var); return 0; }' > temp_source
+  $ test_program
+  14
