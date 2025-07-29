@@ -141,3 +141,40 @@ This test require RISCV64 toolchain, specifically:
   $ test_program
   [143]
 
+  $ cat > temp_source << EOF
+  > extern print_int(n);
+  > 
+  > fact(n) {
+  >   if (n == 1) {
+  >     return 1;
+  >   }
+  >   return (n * fact(n - 1));
+  > }
+  > 
+  > main(){ 
+  >   print_int(fact(5));
+  >   return 0;
+  > }
+  $ test_program
+  120
+
+  $ cat > temp_source << EOF
+  > extern print_int(n);
+  > 
+  > fib(n) {
+  > 	if (n == 1) {
+  > 	  return 1;
+  > 	}
+  > 	if (n == 0) {
+  > 	  return 0;
+  > 	}
+  > 	return fib(n-1) + fib(n-2);
+  > }
+  > 
+  > main(){ 
+  > 	print_int(fib(13));
+  > 	return 0;
+  > }
+  $ test_program
+  233
+
