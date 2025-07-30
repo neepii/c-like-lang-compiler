@@ -148,7 +148,7 @@ let rec eval_expr_rec expr sym_num =
   | Variable x ->
      let ir, _ = Hashtbl.find symbol_table x in
      (match ir with
-     | SymbAddr _  | FuncArg _-> 
+     | SymbAddr _  | FuncArg _->
         ([] , sym_num, ir)
      | _ -> failwith "unimpl in evaluation of variable")
   | Bop (x, y, z) -> (
@@ -164,7 +164,7 @@ let rec eval_expr_rec expr sym_num =
   )
   | Negation x -> (
     match x with
-    | Constant x -> 
+    | Constant x ->
        let symb_addr, sym_num = give_symb_addr sym_num in
        let move = move_instr (Const (-x)) symb_addr in
        ([move], sym_num, symb_addr)
@@ -205,7 +205,7 @@ let eval_expr expr sym_num =
 let rec allocate_params params sym_num =
   match params with
   | [] -> []
-  | h :: t -> 
+  | h :: t ->
      match h with
      | Variable name ->
         let symb_addr, sym_num = give_symb_addr sym_num in
@@ -224,7 +224,7 @@ let rec create_tac_list ast sym_num =
          let tac_list, arg = eval_expr y sym_num in
          let move = move_instr arg symb_addr in
          Hashtbl.add symbol_table x (symb_addr, Int64);
-         List.concat [tac_list ; [move] ; create_tac_list t sym_num] 
+         List.concat [tac_list ; [move] ; create_tac_list t sym_num]
          (* list.concat is slow, make your concat specifically for tac's*)
        else
          let symb_addr, stype = Hashtbl.find symbol_table x in
@@ -296,8 +296,8 @@ let rec create_tac_list ast sym_num =
             let end_label = create_num_label label_counter in
             let jump = jump_instr end_label [] in
             let else_body = create_tac_list z sym_num in
-            List.concat [tac_list_1 ; tac_list_2 ; [branch] ; then_body ; 
-                         [jump] ; [Label skip_then_branch_label] ; else_body ; 
+            List.concat [tac_list_1 ; tac_list_2 ; [branch] ; then_body ;
+                         [jump] ; [Label skip_then_branch_label] ; else_body ;
                          [Label end_label] ; create_tac_list t sym_num]
          | _ -> failwith "Unimplemented: If statement without relation")
     | FuncInit (name, params, stmts) ->
@@ -327,7 +327,7 @@ let get_asm_operand arg =
   | Symbol x -> x
   | EffectiveAddress (x, y) ->
      let addr =
-     (match y with 
+     (match y with
      | Register n -> riscv64_reg_list.(n)
      | _ -> failwith "Unimplemented in get_asm_operand")
      in
@@ -381,24 +381,24 @@ let construct_move_operator operand1 operand2 =
     | _ -> raise (Failure "constructing None")
 
 let construct_add_operator dest operand1 operand2 =
-  let make_instr x first second = 
+  let make_instr x first second =
     match (operand1, operand2) with
      | (Register _ , Immediate _) -> string_of_instruction "addi" [x;first;second]
      | (Immediate _, Register _) -> string_of_instruction "addi" [x;second;first]
      | (Register _, Register _) -> string_of_instruction "add" [x;first;second]
      | (Immediate num1 , Immediate num2) -> string_of_instruction "li" [x; string_of_int (num1 + num2)]
 
-     | (EffectiveAddress _, Register _) -> 
-        string_of_instruction "ld" ["t1"; first] 
+     | (EffectiveAddress _, Register _) ->
+        string_of_instruction "ld" ["t1"; first]
         ^ string_of_instruction "add" [x;second;first]
      | (Register _, EffectiveAddress _) ->
-        string_of_instruction "ld" ["t1"; second] 
+        string_of_instruction "ld" ["t1"; second]
         ^ string_of_instruction "add" [x;first;second]
      | (EffectiveAddress _, EffectiveAddress _) ->
-        string_of_instruction "ld" ["t1"; first]  
-        ^ string_of_instruction "ld" ["t2"; second] 
+        string_of_instruction "ld" ["t1"; first]
+        ^ string_of_instruction "ld" ["t2"; second]
         ^ string_of_instruction "add" ["t0";"t1"; "t2"]
-        ^ string_of_instruction "sd" ["t0"; x] 
+        ^ string_of_instruction "sd" ["t0"; x]
 
      | (Symbol _, _) -> raise (Failure "Cant add with symbol")
      | _ -> failwith "Uimplemented in construct_add_operator"
@@ -406,24 +406,24 @@ let construct_add_operator dest operand1 operand2 =
   construct_three_arg_operator dest operand1 operand2 make_instr
 
 let construct_sub_operator dest operand1 operand2 =
-  let make_instr x first second =          
+  let make_instr x first second =
     match (operand1, operand2) with
     | (Register _ , Immediate _) -> string_of_instruction "addi" [x;first; "-" ^ second]
     | (Immediate _, Register _) -> string_of_instruction "addi" [x;second; "-" ^ first]
     | (Register _, Register _) -> string_of_instruction "sub" [x;first;second]
     | (Immediate num1, Immediate num2) -> string_of_instruction "li" [x; string_of_int (num1 - num2)]
 
-    | (EffectiveAddress _, Register _) -> 
-       string_of_instruction "ld" ["t1"; first] 
+    | (EffectiveAddress _, Register _) ->
+       string_of_instruction "ld" ["t1"; first]
        ^ string_of_instruction "sub" [x;second;first]
     | (Register _, EffectiveAddress _) ->
-       string_of_instruction "ld" ["t1"; second] 
+       string_of_instruction "ld" ["t1"; second]
        ^ string_of_instruction "sub" [x;first;second]
-    | (EffectiveAddress _, EffectiveAddress _) -> 
-       string_of_instruction "ld" ["t1"; first] 
-       ^ string_of_instruction "ld" ["t2"; second] 
+    | (EffectiveAddress _, EffectiveAddress _) ->
+       string_of_instruction "ld" ["t1"; first]
+       ^ string_of_instruction "ld" ["t2"; second]
        ^ string_of_instruction "sub" ["t0";"t1"; "t2"]
-       ^ string_of_instruction "sd" ["t0"; x] 
+       ^ string_of_instruction "sd" ["t0"; x]
 
     | (Symbol _, _) -> raise (Failure "Cant sub with symbol")
 
@@ -432,24 +432,24 @@ let construct_sub_operator dest operand1 operand2 =
   construct_three_arg_operator dest operand1 operand2 make_instr
 
 let construct_generic_operator string dest operand1 operand2 =
-  let make_instr x first second = 
+  let make_instr x first second =
     match (operand1, operand2) with
     | (Register _, Register _) -> string_of_instruction string [x;first;second]
     | (Register _ , Immediate _) -> string_of_instruction string [x;first;second]
     | (Immediate _, Register _) -> string_of_instruction string [x;second;first]
     | (Immediate _ , Immediate _) -> raise (Failure "Illegal state in construct_generic_operator")
 
-    | (EffectiveAddress _, Register _) -> 
-       string_of_instruction "ld" ["t1"; first] 
+    | (EffectiveAddress _, Register _) ->
+       string_of_instruction "ld" ["t1"; first]
        ^ string_of_instruction string [x;second;first]
     | (Register _, EffectiveAddress _) ->
-       string_of_instruction "ld" ["t1"; second] 
+       string_of_instruction "ld" ["t1"; second]
        ^ string_of_instruction string [x;first;second]
-    | (EffectiveAddress _, EffectiveAddress _) -> 
-       string_of_instruction "ld" ["t1"; first] 
-       ^ string_of_instruction "ld" ["t2"; second] 
+    | (EffectiveAddress _, EffectiveAddress _) ->
+       string_of_instruction "ld" ["t1"; first]
+       ^ string_of_instruction "ld" ["t2"; second]
        ^ string_of_instruction string ["t0";"t1"; "t2"]
-       ^ string_of_instruction "sd" ["t0"; x] 
+       ^ string_of_instruction "sd" ["t0"; x]
 
     | (Symbol _, _) -> failwith "Uimplemented in construct_generic_operator: Symbol"
     | _ -> failwith "Uimplemented in construct_generic_operator"
@@ -467,28 +467,28 @@ let construct_arith_operator op dest operand1 operand2 =
 let construct_neg_operator operand1 operand2 =
   let source = get_asm_operand operand1 in
   let destination = get_asm_operand operand2 in
-  match (operand1, operand2) with 
+  match (operand1, operand2) with
     | (Register _, Register _) -> string_of_instruction "neg" [destination; source]
     | (Register _ , Immediate _) -> raise (Failure "trying to negate imm")
-    | (Immediate _, Register _) -> 
+    | (Immediate _, Register _) ->
        string_of_instruction "li" ["t0"; source]
        ^ string_of_instruction "neg" [destination; "t0"]
     | (Immediate _ , Immediate _) -> raise (Failure "Illegal state in construct_generic_operator")
 
-    | (EffectiveAddress _, Register _) -> 
-       string_of_instruction "ld" ["t0"; source] 
+    | (EffectiveAddress _, Register _) ->
+       string_of_instruction "ld" ["t0"; source]
        ^ string_of_instruction "neg" [destination; "t0"]
     | (Register _, EffectiveAddress _) ->
        string_of_instruction "neg" ["t0"; source]
        ^ string_of_instruction "sd" ["t0"; destination]
-    | (EffectiveAddress _, EffectiveAddress _) -> 
-       string_of_instruction "ld" ["t0"; source] 
+    | (EffectiveAddress _, EffectiveAddress _) ->
+       string_of_instruction "ld" ["t0"; source]
        ^ string_of_instruction "neg" ["t1"; "t0"]
        ^ string_of_instruction "sd" ["t1"; destination]
 
     | (Symbol _, _) -> failwith "Uimplemented in construct_generic_operator: Symbol"
-    | _ -> failwith "Uimplemented in construct_generic_operator"    
-  
+    | _ -> failwith "Uimplemented in construct_generic_operator"
+
 
 let construct_branchjump_operator bool_op operand1 operand2 label =
   let op_string =
@@ -504,26 +504,26 @@ let construct_branchjump_operator bool_op operand1 operand2 label =
   let second = get_asm_operand operand2 in
   match (operand1, operand2) with
     | (Register _, Register _) -> string_of_instruction op_string [first;second;label]
-    | (Register _ , Immediate _) -> 
+    | (Register _ , Immediate _) ->
        string_of_instruction "li" ["t0";second]
        ^ string_of_instruction op_string [first;"t0"]
-    | (Immediate _, Register _) -> 
+    | (Immediate _, Register _) ->
        string_of_instruction "li" ["t0";first]
        ^ string_of_instruction op_string ["t0"; second]
-    | (Immediate _ , Immediate _) -> 
+    | (Immediate _ , Immediate _) ->
        string_of_instruction "li" ["t0";first]
        ^ string_of_instruction "li" ["t1";second]
        ^ string_of_instruction op_string ["t0"; "t1"]
 
-    | (EffectiveAddress _, Register _) -> 
+    | (EffectiveAddress _, Register _) ->
        string_of_instruction "ld" ["t0"; first]
        ^ string_of_instruction op_string ["t0"; second; label]
     | (Register _, EffectiveAddress _) ->
-       string_of_instruction "ld" ["t0"; second] 
+       string_of_instruction "ld" ["t0"; second]
        ^ string_of_instruction op_string [first; "t0"; label]
-    | (EffectiveAddress _, EffectiveAddress _) -> 
-       string_of_instruction "ld" ["t1"; first] 
-       ^ string_of_instruction "ld" ["t2"; second] 
+    | (EffectiveAddress _, EffectiveAddress _) ->
+       string_of_instruction "ld" ["t1"; first]
+       ^ string_of_instruction "ld" ["t2"; second]
        ^ string_of_instruction op_string ["t1"; "t2"; label]
     | (Symbol _, _) -> failwith "Uimplemented in construct_generic_operator: Symbol"
     | _ -> failwith "Uimplemented in construct_generic_operator"
@@ -542,7 +542,7 @@ let rec string_of_ir ir =
 let rec ir_to_gen_arg ir_arg reg location =
   let regs_index = [| 9;17;18;19;20;21;22;23;24;25;26;27 |] in
   match ir_arg with
-  | SymbAddr i -> 
+  | SymbAddr i ->
      if location.(i) = -1 then
        let num = reg.(i) in
        Register regs_index.(num)
@@ -568,7 +568,7 @@ let construct_function name (dest: gen_arg) args reg location =
   let pop_ra = construct_move_operator (EffectiveAddress (0, (Register 2))) (Register 1) in
   if dest = None then
     String.concat "" (List.concat [[allocate] ; [push_ra] ; push_arg ; move; [jump] ; [pop_ra]; pop_arg ; [deallocate]])
-  else 
+  else
     let move_return_value = construct_move_operator (Register 10) dest in
     String.concat "" (List.concat [[allocate] ; [push_ra] ; push_arg ; move; [jump] ; [move_return_value; pop_ra]; pop_arg ; [deallocate]])
 
@@ -583,10 +583,10 @@ let ident_is_func ident =
 
 
 
-let rec ir_list_from_instrs_until_end tac_list = 
+let rec ir_list_from_instrs_until_end tac_list =
   match tac_list with
   | [] -> []
-  | h :: t -> 
+  | h :: t ->
      match h with
      | _ ->
         let list = ir_list_from_instr h in
@@ -604,7 +604,7 @@ let regs_from_instrs tac_list reg location =
   in
   let reg_list = List.sort_uniq cmp_regs reg_list in
   reg_list
- 
+
 let rec generate_code_rec tac reg location live regs_used =
   match tac with
   | [] -> ""
@@ -660,7 +660,7 @@ let rec generate_code_rec tac reg location live regs_used =
           let gen_arg = ir_to_gen_arg ir_arg reg location in
           let pop = List.mapi (fun i reg -> construct_move_operator (EffectiveAddress ((i+1) * 8, Register 2)) reg) regs_used in
           let pop_string = String.concat "" pop in
-          let string = 
+          let string =
           construct_move_operator gen_arg (Register 10)
           ^ construct_move_operator (EffectiveAddress (0, Register 2)) (Register 8)
           ^ pop_string
@@ -673,14 +673,14 @@ let rec generate_code_rec tac reg location live regs_used =
      in
      tac ^ generate_code_rec t reg location live regs_used
 
-let update_interval time ir live_intervals = 
+let update_interval time ir live_intervals =
   match ir with
-  | SymbAddr num -> 
+  | SymbAddr num ->
      let start_p, end_p, index = live_intervals.(num) in
      assert(end_p <= time);
      if start_p = -1 then
        live_intervals.(num) <- (time, time, index)
-     else 
+     else
        live_intervals.(num) <- (start_p, time, index)
   | _ -> ()
 
@@ -688,10 +688,10 @@ let update_interval time ir live_intervals =
 let rec compute_live_intervals time tac_list live_intervals =
   match tac_list with
   | [] -> ()
-  | h :: t -> 
+  | h :: t ->
      let list = ir_list_from_instr h in
      (match h with
-     | Jump (_, list) -> 
+     | Jump (_, list) ->
         List.iter (fun ir -> update_interval time ir live_intervals) list;
      | _ -> ());
      List.iter (fun ir -> update_interval time ir live_intervals) list;
@@ -701,12 +701,12 @@ let spill_at_interval interval active register offset_stack last_offset =
   let rev_active = List.rev active in
   let _, end_i, i = interval in
   let _, end_j, j = List.hd rev_active in
-  let active = 
-    if end_j > end_i then 
+  let active =
+    if end_j > end_i then
       let reg_i = register.(i) in
       register.(j) <- reg_i;
       offset_stack.(j) <- last_offset;
-      interval :: List.rev (List.tl rev_active) 
+      interval :: List.rev (List.tl rev_active)
     else (
       offset_stack.(i) <- last_offset;
       active
@@ -717,7 +717,7 @@ let spill_at_interval interval active register offset_stack last_offset =
 let expire_old_intervals interval register reg_avail active =
   match active with
   | [] -> ([], reg_avail)
-  | h :: t -> 
+  | h :: t ->
      let _, end_j, j = h in
      let start_i, _, _ = interval in
      if end_j >= start_i then
@@ -730,10 +730,10 @@ let expire_old_intervals interval register reg_avail active =
 let rec register_allocation_rec live_interval register reg_avail active offset last_offset  =
   match live_interval with
   | [] -> ()
-  | h :: t -> 
+  | h :: t ->
      let _, _, i = h in
      let active =
-       List.sort (fun a b -> 
+       List.sort (fun a b ->
            let _, a',  _ = a in
            let _, b',  _ = b in
            a' - b'
@@ -743,7 +743,7 @@ let rec register_allocation_rec live_interval register reg_avail active offset l
      if List.length active = num_of_registers_avail then
        let active, last_offset = spill_at_interval h active register offset last_offset in
        register_allocation_rec t register reg_avail active offset last_offset
-     else 
+     else
        let new_reg = List.hd reg_avail in
        let reg_avail = List.tl reg_avail in
        register.(i) <- new_reg;
@@ -760,18 +760,18 @@ let rec register_allocation_rec live_interval register reg_avail active offset l
 let register_allocation live_interval offset register =
   let reg_avail = List.init num_of_registers_avail (fun i -> i) in
   let active = [] in
-  Array.sort (fun a b -> 
+  Array.sort (fun a b ->
       let a', _,  _ = a in
       let b', _,  _ = b in
       a' - b'
     ) live_interval;
   register_allocation_rec (Array.to_list live_interval) register reg_avail active offset 0
 
-let string_of_tac tac = 
+let string_of_tac tac =
   match tac with
      | Move (ir1, ir2) ->
      string_of_ir ir2 ^ " := " ^ string_of_ir ir1
-     | ArithInstr (op, ir1, ir2, ir3) -> 
+     | ArithInstr (op, ir1, ir2, ir3) ->
         string_of_ir ir1 ^ " := " ^ string_of_ir ir2 ^ get_string_sign op ^ string_of_ir ir3
      | Neg (ir1, ir2) ->
         string_of_ir ir2 ^ " := - (" ^ string_of_ir ir1 ^ ")"
@@ -779,7 +779,7 @@ let string_of_tac tac =
         "branch to " ^ label ^ " if " ^ string_of_ir ir1 ^ get_string_bool_op bool_op ^ string_of_ir ir2
      | Syscall (num, ir1) ->
         "syscall " ^ string_of_int num ^ " with " ^ string_of_ir ir1
-     | CallFunction (name, ir1, ir_list) ->      
+     | CallFunction (name, ir1, ir_list) ->
         let arg_list = List.map string_of_ir ir_list in
         let arg_str = String.concat ", " arg_list in
         string_of_ir ir1 ^ " := " ^ name ^ "(" ^ arg_str ^ ")"
@@ -800,7 +800,7 @@ let generate_code_frame tac_list =
   Stdlib.List.iteri (fun i el ->
       Stdlib.Printf.printf "%d: %s\n" i (string_of_tac el)
     ) tac_list;
-  let offset_size = 
+  let offset_size =
     Array.fold_left (fun x el -> if el != -1 then x + 1 else x ) 0 offset_stack
   in
   if offset_size > 0 then
@@ -809,12 +809,12 @@ let generate_code_frame tac_list =
   ^ generate_code_rec tac_list register offset_stack live_intervals []
 
 let generate_code tac_list =
-  let string = 
-  String.concat "" (List.map (fun x -> ".extern " ^ x ^ "\n") !extern_symbol_list) 
+  let string =
+  String.concat "" (List.map (fun x -> ".extern " ^ x ^ "\n") !extern_symbol_list)
   ^ ".global _start\n"
   ^ generate_code_frame tac_list
   ^ "_start:\n  call main\n  li a7, 94\n  ecall\n"
-  in 
+  in
   label_counter := 0;
   extern_symbol_list := [];
   max_symb_addr_counter := 0;

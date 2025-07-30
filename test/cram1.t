@@ -200,3 +200,26 @@ Test recursive-style fibonacci
   > end;
   $ test_program
   233
+
+  $ cat > temp_source << EOF
+  > extern print_int(integer);
+  > 
+  > fact(n, x)
+  > begin
+  >   if n == 0 then
+  >   begin
+  >     return x;
+  >   end;
+  >   else
+  >   begin
+  > 	  return fact(n - 1, n * x);
+  >   end;
+  > end;
+  > 
+  > main()
+  > begin
+  >   print_int(fact(7, 1));
+  > 	return 0;
+  > end;
+  $ test_program
+  5040
