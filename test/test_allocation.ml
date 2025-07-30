@@ -48,7 +48,7 @@ let%expect_test "compute_live_intervals 2" =
   Stdlib.Hashtbl.reset symbol_table;
 
   let text =
-    "main () {acc=1; n=5;while(n>1){acc=acc*n; n=n-1;}}"
+    "main () begin acc:=1; n:=5; while n>1 do begin acc:=acc*n; n:=n-1; end; end;"
   in
   let tokens = tokenize_text text in
   let ast = parse tokens in
@@ -99,7 +99,7 @@ let%expect_test "compute_live_intervals 3" =
   symb_addr_num_avail := 0;  
   Stdlib.Hashtbl.reset symbol_table;
   let text = 
-    "main () {b = 1; n=5; n = n + 1; return n; }"
+    "main () begin b := 1; n := 5; n := n + 1; return n; end;"
   in
   let tokens = tokenize_text text in
   let ast = parse tokens in

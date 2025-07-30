@@ -1,6 +1,6 @@
-# C-like Language compiler
+# Pascal-like Language compiler
 
-This compiler generates code from 'c-like' language to RISC-V 64 instructions. Written in Ocaml using libraries only for tests.
+This compiler generates code from 'Pascal-like' language to RISC-V 64 instructions. Written in Ocaml using libraries only for tests.
 
 ## Requirements
 

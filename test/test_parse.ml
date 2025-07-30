@@ -73,50 +73,50 @@ let%expect_test "unary test 1" =
   [%expect {| ((3)*(3)) |}]
 
 let%expect_test "assignment test 1" =
-  let text = "variable = 42 ;" in
+  let text = "variable := 42 ;" in
   let ast, _ = parse_stmts (tokenize_text text) in
   print_ast ast;
   [%expect {| (variable) = (42) ; |}]
 
 let%expect_test "assignment test 2" =
-  let text = "foo = 42 * 1337 ; bar = 143 / 666 * 23 + 777 / 42 ;" in
+  let text = "foo := 42 * 1337 ; bar := 143 / 666 * 23 + 777 / 42 ;" in
   let ast, _ = parse_stmts (tokenize_text text) in
   print_ast ast;
   [%expect {| (foo) = ((42)*(1337)) ; (bar) = (((143)/((666)*(23)))+((777)/(42))) ; |}]
 
 let%expect_test "whilestatement test 1" =
-  let text = "while ( 1 + 2 ) { variable = 1 ; }" in
+  let text = "while  1 + 2 do begin variable := 1 ; end;" in
   let ast, _ = parse_stmts (tokenize_text text) in
   print_ast ast;
   [%expect {| while (((1)+(2))) { (variable) = (1) ; } |}]
 
 let%expect_test "ifstatement test 1" =
-  let text = "if ( 1 + 2 ) { variable = 1 ; }" in
+  let text = "if  1 + 2 then begin variable := 1 ; end;" in
   let ast, _ = parse_stmts (tokenize_text text) in
   print_ast ast;
   [%expect {| if (((1)+(2))) { (variable) = (1) ; } |}]
 
 let%expect_test "tokenizer test 1" =
-  let text = "if(1+2){variable=1;}" in
+  let text = "if 1+2 then  begin variable:=1; end;" in
   let ast, _ = parse_stmts (tokenize_text text) in
   print_ast ast;
   [%expect {| if (((1)+(2))) { (variable) = (1) ; } |}]
 
 let%expect_test "tokenizer test 2" =
-  let text = "if\n(1+2)\n{variable\n=1;}" in
+  let text = "if 1+2 then  begin variable:=1; end;" in
   let ast, _ = parse_stmts (tokenize_text text) in
   print_ast ast;
   [%expect {| if (((1)+(2))) { (variable) = (1) ; } |}]
 
 let%expect_test "nested if's test" =
   let text = "
-              if (3) {
-                if (2) {
-                  if (3) {
+              if 3 then begin
+                if 2 then begin
+                  if 3 then begin
                     return 1;
-                  }
-                }
-              }
+                  end;
+                end;
+              end;
               " in
   let ast, _ = parse_stmts (tokenize_text text) in
   print_ast ast;
@@ -124,13 +124,13 @@ let%expect_test "nested if's test" =
 
 
 let%expect_test "factorial test" =
-  let text = "acc=1; n=5;\nwhile(n>1){\nacc=acc*n;n=n-1;}" in
+  let text = "acc:=1; n:=5; while n>1 do begin acc:=acc*n; n:=n-1; end;" in
   let ast, _ = parse_stmts (tokenize_text text) in
   print_ast ast;
   [%expect {| (acc) = (1) ; (n) = (5) ; while (((n)>(1))) { (acc) = ((acc)*(n)) ; (n) = ((n)-(1)) ; } |}]
 
 let%expect_test "factorial test" =
-  let text = "bool = n > 1 ;" in
+  let text = "bool := n > 1 ;" in
   let ast, _ = parse_stmts (tokenize_text text) in
   print_ast ast;
   [%expect {| (bool) = ((n)>(1)) ; |}]

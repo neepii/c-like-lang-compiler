@@ -547,7 +547,7 @@ let rec ir_to_gen_arg ir_arg reg location =
        let num = reg.(i) in
        Register regs_index.(num)
      else
-       EffectiveAddress (8 * (location.(i) + 1), (Register 2))
+       EffectiveAddress (8 * (location.(i)), (Register 2))
   | Const x -> Immediate x
   | Symbol x -> Symbol x
   | FuncArg x -> Register (x + 10)
@@ -697,8 +697,6 @@ let rec compute_live_intervals time tac_list live_intervals =
      List.iter (fun ir -> update_interval time ir live_intervals) list;
      compute_live_intervals (time + 1) t live_intervals
 
-
-
 let spill_at_interval interval active register offset_stack last_offset =
   let rev_active = List.rev active in
   let _, end_i, i = interval in
@@ -793,7 +791,6 @@ let string_of_tac tac =
         "return " ^ string_of_ir name
      | None -> ""
 
-
 let generate_code_frame tac_list =
   let live_intervals = Array.init (!max_symb_addr_counter + 1) (fun i -> (-1, -1, i)) in
   compute_live_intervals 0 tac_list live_intervals;
@@ -810,7 +807,6 @@ let generate_code_frame tac_list =
     string_of_instruction "addi" ["sp"; "sp"; string_of_int (-8 * offset_size)]
   else ""
   ^ generate_code_rec tac_list register offset_stack live_intervals []
-
 
 let generate_code tac_list =
   let string = 

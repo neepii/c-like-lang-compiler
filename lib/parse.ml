@@ -6,11 +6,13 @@ type token_type = IntLiteral
                 | EqualityOperator
                 | LeftParenthesis
                 | RightParenthesis
-                | LeftCurly
-                | RightCurly
+                | BeginKeyword
+                | EndKeyword
                 | ReturnKeyword
                 | ExternKeyword
+                | DoKeyword
                 | IfKeyword
+                | ThenKeyword
                 | ElseKeyword
                 | WhileKeyword
                 | AssignmentSymbol
@@ -64,21 +66,23 @@ let token_type_key_value = [
     "[ \n\t\r\x0b]+", Whitespace;
     ",", Comma;
     ";", Punctuator;
+    "begin", BeginKeyword;
+    "do", DoKeyword;
+    "then", ThenKeyword;
+    "end", EndKeyword;
     "if", IfKeyword;
     "while", WhileKeyword;
     "else", ElseKeyword;
     "return", ReturnKeyword;
     "extern", ExternKeyword;
     "[!=]=", EqualityOperator;
-    "=", AssignmentSymbol;
+    ":=", AssignmentSymbol;
     "[a-zA-Z][a-zA-z0-9_]*", Identifier;
     "[+-]", FirstOperator;
     "[*/%]", SecondOperator;
     "[<>]", RelationalOperator;
     "(", LeftParenthesis;
     ")", RightParenthesis;
-    "{", LeftCurly;
-    "}", RightCurly;
 ]
 
 let token_type_regexp =
@@ -276,27 +280,28 @@ let rec parse_stmt token_list =
      let tail = parse_match Punctuator tail in
      (ReturnStatement expression, tail)
   | WhileKeyword ->
-     let tail = parse_match LeftParenthesis tail in
      let expression, tail = parse_expr tail in
-     let tail = parse_match RightParenthesis tail in
-     let tail = parse_match LeftCurly tail in
+     let tail = parse_match DoKeyword tail in
+     let tail = parse_match BeginKeyword tail in
      let stmts, tail = parse_stmts tail in
-     let tail = parse_match RightCurly tail in
+     let tail = parse_match EndKeyword tail in
+     let tail = parse_match Punctuator tail in
      (WhileStatement (expression, stmts), tail)
   | IfKeyword ->
-     let tail = parse_match LeftParenthesis tail in
      let expression, tail = parse_expr tail in
-     let tail = parse_match RightParenthesis tail in
-     let tail = parse_match LeftCurly tail in
+     let tail = parse_match ThenKeyword tail in
+     let tail = parse_match BeginKeyword tail in
      let first_stmts, tail = parse_stmts tail in
-     let tail = parse_match RightCurly tail in
+     let tail = parse_match EndKeyword tail in
+     let tail = parse_match Punctuator tail in
      if tail = [] || snd (List.hd tail) != ElseKeyword then
        (IfStatement (expression, first_stmts, []), tail)
      else
        let tail = parse_match ElseKeyword tail in
-       let tail = parse_match LeftCurly tail in
+       let tail = parse_match BeginKeyword tail in
        let second_stmts, tail = parse_stmts tail in
-       let tail = parse_match RightCurly tail in
+       let tail = parse_match EndKeyword tail in
+       let tail = parse_match Punctuator tail in
        (IfStatement (expression, first_stmts, second_stmts), tail)
   | EOF ->
      (EndStatement, [])
@@ -304,7 +309,7 @@ let rec parse_stmt token_list =
 
 and parse_stmts token_list =
   let stmt, tail = parse_stmt token_list in
-  if tail = [] || snd (List.hd tail) = RightCurly then
+  if tail = [] || snd (List.hd tail) = EndKeyword then
     ([stmt], tail)
   else
     let stmts, tail = parse_stmts tail in
@@ -330,15 +335,16 @@ let rec parse_outer_stmt token_list =
           | _ -> raise (Failure "Syntax error: no identifier after extern keyword"))
        | Identifier ->
           let expression, tail = parse_args t in
-          let tail = parse_match LeftCurly tail in
+          let tail = parse_match BeginKeyword tail in
           let stmts, tail = parse_stmts tail in
-          let tail = parse_match RightCurly tail in
+          let tail = parse_match EndKeyword tail in
+          let tail = parse_match Punctuator tail in
           (FuncInit  (fst h, expression, stmts), tail)
        | EOF ->
           (EndStatement, [])
        | _ -> raise (Failure "Illegal state in parse_outer_stmt")
   in
-  if tail = [] || snd (List.hd tail) = RightCurly then
+  if tail = [] || snd (List.hd tail) = EndKeyword then
     ([stmt], tail)
   else
     let stmts, tail = parse_outer_stmt tail in
